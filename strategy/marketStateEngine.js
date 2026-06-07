@@ -1,30 +1,30 @@
 // ============================================================
-//  MARKET STATE ENGINE
-//  Classifies: TRENDING_BULLISH | TRENDING_BEARISH |
-//              SIDEWAYS | VOLATILE | BREAKOUT | REVERSAL
+// MARKET STATE ENGINE
+// Classifies: TRENDING_BULLISH | TRENDING_BEARISH |
+// SIDEWAYS | VOLATILE | BREAKOUT | REVERSAL
+// Grade A: Integrated regime detection
 // ============================================================
 
 const STATES = {
   TRENDING_BULLISH: 'TRENDING_BULLISH',
   TRENDING_BEARISH: 'TRENDING_BEARISH',
-  SIDEWAYS:         'SIDEWAYS',
-  VOLATILE:         'VOLATILE',
-  BREAKOUT:         'BREAKOUT',
-  REVERSAL:         'REVERSAL',
-  UNKNOWN:          'UNKNOWN',
+  SIDEWAYS: 'SIDEWAYS',
+  VOLATILE: 'VOLATILE',
+  BREAKOUT: 'BREAKOUT',
+  REVERSAL: 'REVERSAL',
+  UNKNOWN: 'UNKNOWN',
 };
 
 class MarketStateEngine {
   constructor() {
-    this.state        = STATES.UNKNOWN;
-    this.history      = [];
-    this.maxHistory   = 10;
-    this.lastPrice    = null;
-    this.priceHistory = []; // last 20 prices for ranging detection
+    this.state = STATES.UNKNOWN;
+    this.history = [];
+    this.maxHistory = 10;
+    this.lastPrice = null;
+    this.priceHistory = [];
   }
 
-  // Main classification — call after each indicator update
-  classify(indicators, oiAnalysis) {
+  classify(indicators, oiAnalysis, regime = null) {
     if (!indicators) return { state: STATES.UNKNOWN, reasons: [], score: 0 };
 
     const { bias, bb, momentum, candle, breakout, price } = indicators;
@@ -32,47 +32,58 @@ class MarketStateEngine {
     let bullScore = 0;
     let bearScore = 0;
 
-    // Track price history for ranging detection
     this.priceHistory.push(price);
     if (this.priceHistory.length > 20) this.priceHistory.shift();
 
-    // ── EMA ALIGNMENT ────────────────────────────────────────
+    // EMA ALIGNMENT
     if (bias.bullishEMA) { bullScore += 2; reasons.push('EMA_BULL_ALIGNED'); }
     if (bias.bearishEMA) { bearScore += 2; reasons.push('EMA_BEAR_ALIGNED'); }
 
-    // ── VWAP POSITION ────────────────────────────────────────
+    // VWAP POSITION
     if (bias.aboveVWAP) { bullScore += 1; reasons.push('ABOVE_VWAP'); }
     if (bias.belowVWAP) { bearScore += 1; reasons.push('BELOW_VWAP'); }
 
-    // ── HTF BIAS (15m) ───────────────────────────────────────
+    // HTF BIAS
     if (bias.htfBullish) { bullScore += 2; reasons.push('HTF_BULL'); }
     if (bias.htfBearish) { bearScore += 2; reasons.push('HTF_BEAR'); }
 
-    // ── MOMENTUM ─────────────────────────────────────────────
+    // MOMENTUM
     if (momentum.bullMomentum) { bullScore += 1; reasons.push('BULL_MOMENTUM'); }
     if (momentum.bearMomentum) { bearScore += 1; reasons.push('BEAR_MOMENTUM'); }
 
-    // ── CANDLE STRENGTH ──────────────────────────────────────
+    // CANDLE STRENGTH
     if (candle.last?.isStrong && candle.last?.bullish) { bullScore += 1; reasons.push('STRONG_BULL_CANDLE'); }
     if (candle.last?.isStrong && candle.last?.bearish) { bearScore += 1; reasons.push('STRONG_BEAR_CANDLE'); }
 
-    // ── BOLLINGER ────────────────────────────────────────────
+    // BOLLINGER
     const bb5 = bb['5m'];
-    const isSqueeze   = bb5?.squeeze;
-    const isExpanding = bb5?.expanding || (!isSqueeze && bb5?.bandwidth > 2);
-    const isVolatile  = bb5?.bandwidth > 4;
+    let isSqueeze = bb5?.squeeze;
+    let isExpanding = bb5?.expanding || (!isSqueeze && bb5?.bandwidth > 2);
+    let isVolatile = bb5?.bandwidth > 4;
 
     if (breakout.priceAboveBB) { bullScore += 2; reasons.push('PRICE_ABOVE_BB'); }
     if (breakout.priceBelowBB) { bearScore += 2; reasons.push('PRICE_BELOW_BB'); }
 
-    // ── OI CONFIRMATION ──────────────────────────────────────
+    // OI CONFIRMATION
     if (oiAnalysis?.ceBuyConfirmed) { bullScore += 1; reasons.push('OI_BULL'); }
     if (oiAnalysis?.peBuyConfirmed) { bearScore += 1; reasons.push('OI_BEAR'); }
 
-    // ── RANGING DETECTION ────────────────────────────────────
+    // RANGING DETECTION
     const isRanging = this._detectRanging();
 
-    // ── CLASSIFY STATE ───────────────────────────────────────
+    // REGIME INTEGRATION (Grade A)
+    if (regime) {
+      if (regime.regime === 'EXTREME' || regime.regime === 'DEAD') {
+        reasons.push(`REGIME_${regime.regime}`);
+        isVolatile = true;
+      } else if (regime.regime === 'HIGH') {
+        reasons.push('REGIME_HIGH_VOL');
+      } else if (regime.regime === 'ELEVATED') {
+        reasons.push('REGIME_ELEVATED');
+      }
+    }
+
+    // CLASSIFY STATE
     let state;
 
     if (isVolatile && !bias.bullishEMA && !bias.bearishEMA) {
@@ -105,6 +116,7 @@ class MarketStateEngine {
 
     const result = {
       state,
+      regime: regime?.regime || null,
       bullScore,
       bearScore,
       reasons,
@@ -127,12 +139,9 @@ class MarketStateEngine {
     const recent = this.priceHistory.slice(-10);
     const max = Math.max(...recent);
     const min = Math.min(...recent);
-    const range = max - min;
-    // If price is oscillating in a narrow 150-point range = ranging
-    return range < 150;
+    return (max - min) < 150;
   }
 
-  // Check if state is tradeable (not sideways/volatile)
   isTradeable() {
     return [
       STATES.TRENDING_BULLISH,
@@ -141,12 +150,10 @@ class MarketStateEngine {
     ].includes(this.state);
   }
 
-  // Is bullish state
   isBullish() {
     return this.state === STATES.TRENDING_BULLISH || this.state === STATES.BREAKOUT;
   }
 
-  // Is bearish state
   isBearish() {
     return this.state === STATES.TRENDING_BEARISH;
   }

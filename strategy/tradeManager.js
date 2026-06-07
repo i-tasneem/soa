@@ -1,51 +1,40 @@
 // ============================================================
-// TRADE MANAGER (PHASE A)
-// Fixes:
-// - trade now carries contract metadata (strike/token/expiry)
-// - currentPremium updates are accurate when server feeds actual LTP
+// TRADE MANAGER — Institutional Grade A
+// Dynamic target/SL from signal DNA
+// Trailing SL at 60% of target profit
 // ============================================================
-const LOT_SIZE = 20;
-const TARGET_PTS = 25;
-const SL_PTS = 20;
-const TRAIL_AFTER = 15;
 
 class TradeManager {
   constructor() {
     this.activeTrade = null;
-	this.confirmedToday = 0;
-	this.maxConfirmed = 3;
+    this.confirmedToday = 0;
+    this.maxConfirmed = 3;
     this.closedTrades = [];
     this.dailyPnL = 0;
     this.lots = 15;
+    this.lotSize = 20; // default fallback
   }
 
   setLots(n) { this.lots = n; }
-  
-  
+
   canOpenNewTrade() {
-  if (this.activeTrade) {
-    return {
-      allowed: false,
-      reason: 'Active trade exists'
-    };
+    if (this.activeTrade) {
+      return { allowed: false, reason: 'Active trade exists' };
+    }
+    if (this.confirmedToday >= this.maxConfirmed) {
+      return { allowed: false, reason: 'Daily CONFIRMED limit reached' };
+    }
+    return { allowed: true };
   }
 
-  if (this.confirmedToday >= this.maxConfirmed) {
-    return {
-      allowed: false,
-      reason: 'Daily CONFIRMED limit reached'
-    };
-  }
-
-  return { allowed: true };
-}
-
-  // Open a trade on signal
-  // contract = { strike, token, expiry }
-openTrade(signal, premium, contract, opts = {}) {
+  openTrade(signal, premium, contract, opts = {}, dna = null) {
     const check = this.canOpenNewTrade();
     if (!check.allowed) return null;
     if (!Number.isFinite(premium)) return null;
+
+    const lotSize = dna?.lotSize || this.lotSize || 20;
+    const targetPts = signal.targetPts || 25;
+    const slPts = signal.slPts || 20;
 
     this.activeTrade = {
       id: `TRADE_${Date.now()}`,
@@ -58,12 +47,15 @@ openTrade(signal, premium, contract, opts = {}) {
       strike: contract?.strike ?? signal.strike ?? null,
       optionToken: contract?.token ?? signal.optionToken ?? null,
       expiry: contract?.expiry ?? signal.expiry ?? null,
-      target: parseFloat((premium + TARGET_PTS).toFixed(2)),
-      sl: parseFloat((premium - SL_PTS).toFixed(2)),
-      trailSL: parseFloat((premium - SL_PTS).toFixed(2)),
+      target: parseFloat((premium + targetPts).toFixed(2)),
+      sl: parseFloat((premium - slPts).toFixed(2)),
+      trailSL: parseFloat((premium - slPts).toFixed(2)),
       trailing: false,
       maxProfit: 0,
-      lots: this.lots,
+      lots: opts.lots || this.lots || 15,
+      lotSize,
+      targetPts,
+      slPts,
       isEarlyEntry: opts.early || false,
       earlyEntryReason: opts.reason || null,
       status: 'OPEN'
@@ -73,41 +65,38 @@ openTrade(signal, premium, contract, opts = {}) {
     return this.activeTrade;
   }
 
- 
- update(currentPremium) {
+  update(currentPremium) {
     if (!this.activeTrade || this.activeTrade.status !== 'OPEN') return null;
-
     const trade = this.activeTrade;
     trade.currentPremium = currentPremium;
 
     const profit = currentPremium - trade.entryPremium;
     trade.maxProfit = Math.max(trade.maxProfit, profit);
+    trade.unrealisedPnL = parseFloat((profit * trade.lotSize * trade.lots).toFixed(2));
 
-    trade.unrealisedPnL = parseFloat((profit * LOT_SIZE * trade.lots).toFixed(2));
-
-    if (profit >= TRAIL_AFTER && !trade.trailing) {
+    // Trailing SL activates at 60% of target
+    const trailTrigger = trade.targetPts * 0.6;
+    if (profit >= trailTrigger && !trade.trailing) {
       trade.trailing = true;
       trade.trailSL = trade.entryPremium;
-      console.log(`🔒 Trailing SL activated — SL moved to breakeven ₹${trade.trailSL}`);
+      console.log(`🔒 Trailing SL activated at 60% target — SL moved to breakeven ₹${trade.trailSL}`);
     }
 
     if (trade.trailing) {
-      const newTrailSL = currentPremium - SL_PTS;
+      const trailAmount = trade.targetPts * 0.4;
+      const newTrailSL = currentPremium - trailAmount;
       if (newTrailSL > trade.trailSL) {
         trade.trailSL = parseFloat(newTrailSL.toFixed(2));
       }
     }
 
     const effectiveSL = trade.trailing ? trade.trailSL : trade.sl;
-
     if (currentPremium <= effectiveSL) {
       return this._closeTrade('SL_HIT', currentPremium, effectiveSL);
     }
-
     if (currentPremium >= trade.target) {
       return this._closeTrade('TARGET_HIT', currentPremium, trade.target);
     }
-
     return null;
   }
 
@@ -119,7 +108,7 @@ openTrade(signal, premium, contract, opts = {}) {
   _closeTrade(reason, exitPremium, exitRef) {
     const trade = this.activeTrade;
     const profit = exitPremium - trade.entryPremium;
-    const pnl = parseFloat((profit * LOT_SIZE * trade.lots).toFixed(2));
+    const pnl = parseFloat((profit * trade.lotSize * trade.lots).toFixed(2));
 
     const closed = {
       ...trade,
@@ -136,7 +125,7 @@ openTrade(signal, premium, contract, opts = {}) {
     this.activeTrade = null;
 
     const emoji = pnl >= 0 ? '✅' : '❌';
-    console.log(`${emoji} Trade closed: ${reason}  Premium: ₹${exitPremium}  P&L: ₹${pnl}`);
+    console.log(`${emoji} Trade closed: ${reason} Premium: ₹${exitPremium} P&L: ₹${pnl}`);
 
     return closed;
   }
@@ -145,6 +134,7 @@ openTrade(signal, premium, contract, opts = {}) {
     this.activeTrade = null;
     this.closedTrades = [];
     this.dailyPnL = 0;
+    this.confirmedToday = 0;
     console.log('📅 Trade manager reset for new day');
   }
 

@@ -1,7 +1,11 @@
 // ============================================================
 // SOA TRADER — CONFIGURATION FILE
 // Phase 1: feed freshness SLAs + analysis throttling
+// Grade A: Added activeInstrument + dnaProfiles
 // ============================================================
+
+const dnaProfiles = require('./strategy/dna/instrumentProfiles');
+
 module.exports = {
   angel: {
     apiKey: process.env.ANGEL_API_KEY,
@@ -48,14 +52,14 @@ module.exports = {
     maxOiAgeMs: Number(process.env.MAX_OI_AGE_MS) || 15000,
     maxPremiumAgeMs: Number(process.env.MAX_PREMIUM_AGE_MS) || 8000,
   },
-    greeks: {
+  greeks: {
     enabled: process.env.GREEKS_ENABLED !== 'false',
     defaultIv: Number(process.env.DEFAULT_IV) || 0.18,
     riskFreeRate: Number(process.env.RISK_FREE_RATE) || 0.065,
     minTteYears: Number(process.env.MIN_TTE_YEARS) || (1 / (365 * 24)),
   },
 
-   calibration: {
+  calibration: {
     // IMPORTANT: explicit opt-in; false means disabled exactly as requested
     enabled: process.env.CALIBRATION_ENABLED === 'true',
     minSamples: Number(process.env.CALIBRATION_MIN_SAMPLES) || 20,
@@ -91,4 +95,8 @@ module.exports = {
     throttleMs: Number(process.env.ANALYSIS_THROTTLE_MS) || 200,
     maxAnalysisAgeMs: Number(process.env.MAX_ANALYSIS_AGE_MS) || 10000,
   },
+
+  // ---- Grade A additions ----
+  activeInstrument: process.env.INSTRUMENT || 'SENSEX',
+  dnaProfiles,
 };

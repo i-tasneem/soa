@@ -1,6 +1,7 @@
 // ============================================================
-//  INDICATORS
-//  EMA, Bollinger Bands, VWAP, Candle Analysis
+// INDICATORS
+// EMA, Bollinger Bands, VWAP, Candle Analysis
+// Grade A: Added ATR(14) + ATR_MA20 + Volume analysis
 // ============================================================
 
 // ── EMA ──────────────────────────────────────────────────────
@@ -15,7 +16,6 @@ function calcEMA(candles, period) {
   return parseFloat(ema.toFixed(2));
 }
 
-// Returns array of EMA values (one per candle)
 function calcEMAArray(candles, period) {
   if (candles.length < period) return [];
   const closes = candles.map(c => c.close);
@@ -30,25 +30,40 @@ function calcEMAArray(candles, period) {
   return result;
 }
 
+// ── ATR ──────────────────────────────────────────────────────
+function calcATR(candles, period = 14) {
+  if (!Array.isArray(candles) || candles.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < candles.length; i++) {
+    const high = candles[i].high;
+    const low = candles[i].low;
+    const prevClose = candles[i - 1].close;
+    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    trs.push(tr);
+  }
+  if (trs.length < period) return null;
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period;
+  }
+  return parseFloat(atr.toFixed(2));
+}
+
 // ── BOLLINGER BANDS ──────────────────────────────────────────
 function calcBollingerBands(candles, period = 15, stdDev = 2) {
   if (candles.length < period) return null;
   const recent = candles.slice(-period);
   const closes = recent.map(c => c.close);
-  const mean   = closes.reduce((a, b) => a + b, 0) / period;
+  const mean = closes.reduce((a, b) => a + b, 0) / period;
   const variance = closes.reduce((sum, c) => sum + Math.pow(c - mean, 2), 0) / period;
-  const sd     = Math.sqrt(variance);
-  const upper  = parseFloat((mean + stdDev * sd).toFixed(2));
-  const lower  = parseFloat((mean - stdDev * sd).toFixed(2));
+  const sd = Math.sqrt(variance);
+  const upper = parseFloat((mean + stdDev * sd).toFixed(2));
+  const lower = parseFloat((mean - stdDev * sd).toFixed(2));
   const middle = parseFloat(mean.toFixed(2));
-  const bw     = parseFloat(((upper - lower) / middle * 100).toFixed(4)); // bandwidth %
-
-  // Squeeze: bandwidth below 1.5% = compressed
+  const bw = parseFloat(((upper - lower) / middle * 100).toFixed(4));
   const squeeze = bw < 1.5;
-  // Expansion: bandwidth > previous avg
   const lastClose = candles[candles.length - 1].close;
   const expanding = lastClose > upper || lastClose < lower;
-
   return { upper, middle, lower, bandwidth: bw, squeeze, expanding };
 }
 
@@ -59,25 +74,23 @@ class VWAPCalculator {
   }
 
   reset() {
-    this.cumTPV  = 0; // cumulative typical price × volume
-    this.cumVol  = 0; // cumulative volume
-    this.vwap    = null;
-    this.bands   = { upper1: null, lower1: null, upper2: null, lower2: null };
-    this.tpSq    = 0; // for std dev bands
-    this.count   = 0;
+    this.cumTPV = 0;
+    this.cumVol = 0;
+    this.vwap = null;
+    this.bands = { upper1: null, lower1: null, upper2: null, lower2: null };
+    this.tpSq = 0;
+    this.count = 0;
   }
 
-  // Update with candle — call on each new/updated candle
   update(candle) {
     const tp = (candle.high + candle.low + candle.close) / 3;
-    const vol = candle.ticks || 1; // use tick count as volume proxy
+    const vol = candle.ticks || 1;
     this.cumTPV += tp * vol;
     this.cumVol += vol;
-    this.tpSq   += tp * tp * vol;
+    this.tpSq += tp * tp * vol;
     this.count++;
     if (this.cumVol === 0) return;
     this.vwap = parseFloat((this.cumTPV / this.cumVol).toFixed(2));
-    // Standard deviation bands
     const variance = (this.tpSq / this.cumVol) - Math.pow(this.vwap, 2);
     const sd = Math.sqrt(Math.max(0, variance));
     this.bands = {
@@ -96,25 +109,18 @@ class VWAPCalculator {
 // ── CANDLE ANALYSIS ──────────────────────────────────────────
 function analyzeCandle(candle) {
   if (!candle) return null;
-  const body    = Math.abs(candle.close - candle.open);
-  const range   = candle.high - candle.low;
+  const body = Math.abs(candle.close - candle.open);
+  const range = candle.high - candle.low;
   const bodyPct = range > 0 ? (body / range) * 100 : 0;
   const bullish = candle.close > candle.open;
   const bearish = candle.close < candle.open;
-  const upperWick = bullish
-    ? candle.high - candle.close
-    : candle.high - candle.open;
-  const lowerWick = bullish
-    ? candle.open - candle.low
-    : candle.close - candle.low;
-
-  // Candle types
-  const isStrong    = bodyPct > 60;   // strong body
-  const isDoji      = bodyPct < 10;   // indecision
-  const isHammer    = lowerWick > body * 2 && upperWick < body * 0.5;
+  const upperWick = bullish ? candle.high - candle.close : candle.high - candle.open;
+  const lowerWick = bullish ? candle.open - candle.low : candle.close - candle.low;
+  const isStrong = bodyPct > 60;
+  const isDoji = bodyPct < 10;
+  const isHammer = lowerWick > body * 2 && upperWick < body * 0.5;
   const isShootingStar = upperWick > body * 2 && lowerWick < body * 0.5;
-  const isEngulfing = body > 15;      // large candle
-
+  const isEngulfing = body > 15;
   return {
     body, range, bodyPct, bullish, bearish,
     upperWick, lowerWick,
@@ -123,30 +129,27 @@ function analyzeCandle(candle) {
 }
 
 // ── FULL INDICATOR SNAPSHOT ───────────────────────────────────
-// Call this after each new candle to get full indicator state
 function getIndicators(candles5m, candles15m, candles30m, vwap) {
   if (!candles5m || candles5m.length < 5) return null;
 
-  const c5  = candles5m;
+  const c5 = candles5m;
   const c15 = candles15m || [];
   const c30 = candles30m || [];
 
   // EMAs on 5m
-  const ema5   = calcEMA(c5, 5);
-  const ema9   = calcEMA(c5, 9);
-  const ema15  = calcEMA(c5, 15);
-  const ema50  = calcEMA(c5, 50);
+  const ema5 = calcEMA(c5, 5);
+  const ema9 = calcEMA(c5, 9);
+  const ema15 = calcEMA(c5, 15);
+  const ema50 = calcEMA(c5, 50);
   const ema200 = calcEMA(c5, 200);
 
   // EMAs on 15m for HTF bias
-  const ema9_15m  = calcEMA(c15, 9);
+  const ema9_15m = calcEMA(c15, 9);
   const ema15_15m = calcEMA(c15, 15);
-
-  // EMAs on 30m for bias
-  const ema9_30m  = calcEMA(c30, 9);
+  const ema9_30m = calcEMA(c30, 9);
 
   // Bollinger on 5m
-  const bb5  = calcBollingerBands(c5, 9, 2);;
+  const bb5 = calcBollingerBands(c5, 9, 2);
   const bb15 = calcBollingerBands(c15, 15, 2);
 
   // VWAP
@@ -168,17 +171,36 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
   const htfBearish = ema9_15m && ema15_15m && ema9_15m < ema15_15m;
 
   // Last 3 candles analysis
-  const lastCandle  = analyzeCandle(c5[c5.length - 1]);
+  const lastCandle = analyzeCandle(c5[c5.length - 1]);
   const prev1Candle = analyzeCandle(c5[c5.length - 2]);
   const prev2Candle = analyzeCandle(c5[c5.length - 3]);
 
-  // Momentum — last 3 candles same direction
+  // Momentum
   const bullMomentum = lastCandle?.bullish && prev1Candle?.bullish;
   const bearMomentum = lastCandle?.bearish && prev1Candle?.bearish;
 
   // Price vs BB
   const priceAboveBB = bb5 && price > bb5.upper;
   const priceBelowBB = bb5 && price < bb5.lower;
+
+  // ---- Grade A: ATR calculation ----
+  const atr14 = calcATR(c5, 14);
+  const atr14_MA20 = (() => {
+    if (c5.length < 20) return null;
+    const atrs = [];
+    for (let i = 14; i < c5.length; i++) {
+      const slice = c5.slice(Math.max(0, i - 14), i + 1);
+      const a = calcATR(slice, 14);
+      if (a !== null) atrs.push(a);
+    }
+    if (atrs.length < 20) return null;
+    return parseFloat((atrs.slice(-20).reduce((a, b) => a + b, 0) / 20).toFixed(2));
+  })();
+
+  // ---- Grade A: Volume analysis ----
+  const volumes = c5.slice(-20).map(c => c.volume || c.ticks || 0);
+  const avgVolume = volumes.length ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
+  const currentVolume = c5[c5.length - 1]?.volume || c5[c5.length - 1]?.ticks || 0;
 
   return {
     price,
@@ -189,7 +211,10 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
     momentum: { bullMomentum, bearMomentum },
     candle: { last: lastCandle, prev1: prev1Candle, prev2: prev2Candle },
     breakout: { priceAboveBB, priceBelowBB },
+    atr14,
+    atr14_MA20,
+    volume: { current: currentVolume, avg20: avgVolume },
   };
 }
 
-module.exports = { calcEMA, calcEMAArray, calcBollingerBands, VWAPCalculator, analyzeCandle, getIndicators };
+module.exports = { calcEMA, calcEMAArray, calcBollingerBands, calcATR, VWAPCalculator, analyzeCandle, getIndicators };
