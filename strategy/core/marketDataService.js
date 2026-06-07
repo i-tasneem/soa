@@ -10,6 +10,9 @@ const path = require('path');
 const { createExpiryCalculator } = require('../utils/expiryCalculator');
 const logger = require('../../logger');
 
+// Public instrument master URL — NO auth required
+const INSTRUMENT_MASTER_URL = 'https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json';
+
 class MarketDataService {
   constructor(brokerConfig) {
     this.brokerConfig = brokerConfig || {};
@@ -17,7 +20,70 @@ class MarketDataService {
     this.apiCallCount = 0;
     this.lastApiReset = Date.now();
     this._pollIntervals = new Map();
-    this.authToken = null;  // ← set via setAuthToken()
+    this.authToken = null;
+    this._masterCache = null; // Shared across all instruments
+    this._masterCacheTime = 0;
+  }
+
+  async _fetchMaster() {
+    const now = Date.now();
+    const cacheDuration = 12 * 60 * 60 * 1000; // 12 hours
+
+    // Use memory cache if fresh
+    if (this._masterCache && (now - this._masterCacheTime) < cacheDuration) {
+      logger.info('Using in-memory instrument master cache');
+      return this._masterCache;
+    }
+
+    // Try file cache
+    const cacheFile = path.join(process.cwd(), 'data', 'OpenAPIScripMaster.json');
+    try {
+      if (fs.existsSync(cacheFile)) {
+        const stat = fs.statSync(cacheFile);
+        if (now - stat.mtime.getTime() < cacheDuration) {
+          const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+          this._masterCache = cached;
+          this._masterCacheTime = now;
+          logger.info(`Loaded instrument master from file cache: ${cached.length} symbols`);
+          return cached;
+        }
+      }
+    } catch (e) {
+      logger.warn(`File cache error: ${e.message}`);
+    }
+
+    // Fetch from public URL
+    try {
+      logger.info('Fetching instrument master from public URL...');
+      const resp = await axios.get(INSTRUMENT_MASTER_URL, {
+        timeout: 60000,
+        responseType: 'json',
+      });
+
+      if (!Array.isArray(resp.data)) {
+        throw new Error(`Invalid master format: ${typeof resp.data}`);
+      }
+
+      this._masterCache = resp.data;
+      this._masterCacheTime = now;
+
+      // Save to file cache
+      try {
+        const dataDir = path.dirname(cacheFile);
+        if (!fs.existsSync(dataDir)) {
+          fs.mkdirSync(dataDir, { recursive: true });
+        }
+        fs.writeFileSync(cacheFile, JSON.stringify(resp.data, null, 2));
+      } catch (err) {
+        logger.warn(`Could not write master cache: ${err.message}`);
+      }
+
+      logger.info(`Fetched instrument master: ${resp.data.length} symbols`);
+      return resp.data;
+    } catch (err) {
+      logger.error(`Failed to fetch instrument master: ${err.message}`);
+      throw err;
+    }
   }
 
   async loadInstrumentMaster(instrumentId, stockName = null) {
@@ -35,74 +101,9 @@ class MarketDataService {
     }
 
     const inst = this.instruments.get(instrumentId);
-    const cacheFile = path.join(process.cwd(), 'data', `instruments_${instrumentId}.json`);
-    const cacheDuration = 12 * 60 * 60 * 1000; // 12 hours
 
-    // Ensure data directory exists
     try {
-      const dataDir = path.dirname(cacheFile);
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
-      }
-    } catch (err) {
-      logger.warn(`[${instrumentId}] Could not create data directory: ${err.message}`);
-    }
-
-    // Check cache
-    if (fs.existsSync(cacheFile)) {
-      try {
-        const stat = fs.statSync(cacheFile);
-        if (Date.now() - stat.mtime.getTime() < cacheDuration) {
-          const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-          inst.tokenMap = this._buildTokenMap(cached);
-          inst.masterFile = cached;
-          inst.masterLoadedAt = Date.now();
-          logger.info(`[${instrumentId}] Loaded cached instrument master: ${cached.length} symbols`);
-          return cached;
-        }
-      } catch (e) {
-        logger.warn(`[${instrumentId}] Cache parse error: ${e.message}`);
-      }
-    }
-
-    // Fetch from Angel One
-    try {
-      const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/master/getAllScript/`;
-      logger.info(`[${instrumentId}] Fetching instrument master from Angel One...`);
-      logger.info(`[${instrumentId}] Auth token present: ${!!this.authToken}`);
-
-      const resp = await axios.get(url, {
-        headers: {
-          'Authorization': `Bearer ${this.authToken || this.brokerConfig.jwtToken || ''}`,  // ← FIXED: use this.authToken
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': 'CLIENT_LOCAL_IP',
-          'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
-          'X-MACAddress': 'MAC_ADDRESS',
-        },
-        timeout: 30000,
-      });
-
-      logger.info(`[${instrumentId}] Master API response status: ${resp.status}`);
-      logger.info(`[${instrumentId}] Master API response keys: ${Object.keys(resp.data || {}).join(', ')}`);
-
-      // Angel One returns { status: true, message: "SUCCESS", data: [...] }
-      // OR { success: true, data: [...] }
-      let master;
-      const responseData = resp.data;
-
-      if (responseData && (responseData.status === true || responseData.success === true) && Array.isArray(responseData.data)) {
-        master = responseData.data;
-        logger.info(`[${instrumentId}] Extracted ${master.length} instruments from response.data.data`);
-      } else if (Array.isArray(responseData)) {
-        master = responseData;
-        logger.info(`[${instrumentId}] Response is direct array: ${master.length} instruments`);
-      } else {
-        logger.error(`[${instrumentId}] Unexpected response format: ${JSON.stringify(responseData).slice(0, 200)}`);
-        throw new Error('Invalid master data');
-      }
+      const master = await this._fetchMaster();
 
       let filtered;
       if (stockName) {
@@ -117,12 +118,6 @@ class MarketDataService {
           s.instrumenttype === 'OPTIDX' &&
           s.name === inst.profile.name
         );
-      }
-
-      try {
-        fs.writeFileSync(cacheFile, JSON.stringify(filtered, null, 2));
-      } catch (err) {
-        logger.warn(`[${instrumentId}] Could not write cache: ${err.message}`);
       }
 
       inst.tokenMap = this._buildTokenMap(filtered);
@@ -150,20 +145,6 @@ class MarketDataService {
       return filtered;
     } catch (err) {
       logger.error(`[${instrumentId}] Failed to load instrument master: ${err.message}`);
-      if (err.response) {
-        logger.error(`[${instrumentId}] HTTP ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 300)}`);
-      }
-      // Try to use cache even if expired
-      if (fs.existsSync(cacheFile)) {
-        try {
-          const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-          inst.tokenMap = this._buildTokenMap(cached);
-          inst.masterFile = cached;
-          inst.masterLoadedAt = Date.now();
-          logger.info(`[${instrumentId}] Using stale cache as fallback: ${cached.length} symbols`);
-          return cached;
-        } catch (_) {}
-      }
       throw err;
     }
   }
@@ -385,7 +366,7 @@ class MarketDataService {
         const result = await this.fetchIndexLTP(instrumentId, authToken);
         callback('TICK', result.ltp, instrumentId);
       } catch (err) {
-        // Silently fail — connection will retry
+        // Silently fail
       }
     }, 2000);
 
@@ -414,7 +395,7 @@ class MarketDataService {
 
   setAuthToken(authToken) {
     this.authToken = authToken;
-    this.brokerConfig.jwtToken = authToken;  // ← keep both in sync
+    this.brokerConfig.jwtToken = authToken;
   }
 }
 
