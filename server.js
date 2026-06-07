@@ -28,7 +28,7 @@ const INST = INSTRUMENT_CONFIG[ACTIVE_INSTRUMENT] || INSTRUMENT_CONFIG.SENSEX;
 
 
 const orchestrator = require('./strategy/orchestrator');
-const { MultiInstrumentManager, INSTRUMENT_CONFIG } = require('./strategy/multiInstrumentManager');
+const { MultiInstrumentManager } = require('./strategy/multiInstrumentManager');
 const database     = require('./database');
 const health       = require('./health');
 const logger       = require('./logger');
