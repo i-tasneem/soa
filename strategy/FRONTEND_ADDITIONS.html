@@ -1,0 +1,236 @@
+<!-- ============================================================
+  FRONTEND ADDITIONS FOR SIGNAL ENGINE
+  Add these to your existing public/index.html
+============================================================ -->
+
+<!-- ── 1. ADD SIGNAL AUDIO (inside <head>) ──────────────────── -->
+<!-- No external dependency needed — uses Web Audio API -->
+
+<!-- ── 2. ADD CSS (inside <style>) ─────────────────────────── -->
+<style>
+/* SIGNAL ALERT */
+.signal-alert{border-radius:var(--rx);padding:14px;margin-bottom:12px;border:2px solid;position:relative;overflow:hidden;animation:signalPulse 0.5s ease}
+@keyframes signalPulse{0%{transform:scale(0.97);opacity:0}100%{transform:scale(1);opacity:1}}
+.signal-alert.ce{background:linear-gradient(135deg,var(--green-bg),rgba(0,229,160,0.08));border-color:var(--green)}
+.signal-alert.pe{background:linear-gradient(135deg,var(--red-bg),rgba(255,61,90,0.08));border-color:var(--red)}
+.signal-type{font-family:var(--display);font-size:28px;letter-spacing:3px;line-height:1;margin-bottom:6px}
+.signal-type.ce{color:var(--green)}.signal-type.pe{color:var(--red)}
+.signal-conf{font-family:var(--mono);font-size:12px;margin-bottom:10px}
+.conf-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:4px 0 10px}
+.conf-fill{height:100%;border-radius:3px;transition:width 0.5s}
+.conf-fill.strong{background:var(--green)}.conf-fill.moderate{background:var(--amber)}.conf-fill.weak{background:var(--red)}
+.signal-factors{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
+.factor-tag{padding:2px 8px;border-radius:12px;font-size:9px;font-family:var(--mono)}
+.factor-pos{background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim)}
+.factor-neg{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
+.signal-meta{display:flex;justify-content:space-between;font-size:10px;color:var(--text3);font-family:var(--mono)}
+
+/* ANALYSIS PANEL */
+.analysis-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+.ana-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:8px}
+.ana-label{font-size:8px;color:var(--text3);letter-spacing:1px;font-family:var(--mono);margin-bottom:3px}
+.ana-val{font-size:13px;font-family:var(--mono);font-weight:bold;color:var(--text)}
+.ana-val.bull{color:var(--green)}.ana-val.bear{color:var(--red)}.ana-val.neu{color:var(--amber)}
+
+/* TRADE TRACKER */
+.trade-box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rx);overflow:hidden;margin-bottom:10px}
+.trade-hdr{padding:8px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.trade-hdr-label{font-size:9px;color:var(--text3);letter-spacing:1.5px;font-family:var(--mono)}
+.trade-status{font-size:9px;font-family:var(--mono);font-weight:bold}
+.trade-row{display:flex;justify-content:space-between;padding:7px 14px;border-bottom:1px solid var(--border);font-size:11px}
+.trade-row:last-child{border:none}
+.trade-key{color:var(--text2)}.trade-val{font-family:var(--mono);font-weight:bold}
+
+/* STATE PILL */
+.state-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:10px;font-weight:bold;font-family:var(--mono);letter-spacing:0.5px;margin-bottom:10px}
+.sp-bull{background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim)}
+.sp-bear{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
+.sp-side{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.sp-vol{background:var(--amber-bg);color:var(--amber);border:1px solid var(--gold-dim)}
+</style>
+
+<!-- ── 3. ADD SIGNAL TAB (replace one of existing tabs or add 5th) ── -->
+<!-- In the tabs div, update HOME tab to show badge when signal fires -->
+<button class="tab active" id="tab-dash" onclick="switchTab('dash')">
+  <span class="tab-icon">🏠</span>HOME<span id="signal-badge" style="display:none;background:var(--red);color:#fff;border-radius:50%;width:14px;height:14px;font-size:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:2px;vertical-align:top" id="sig-badge"></span>
+</button>
+
+<!-- ── 4. ADD TO DASHBOARD PANE (after conn-banner-area) ─────── -->
+<div id="signal-area"></div>
+<div id="analysis-area"></div>
+
+<!-- ── 5. ADD JAVASCRIPT (inside <script>) ──────────────────── -->
+<script>
+// ── SIGNAL STATE ─────────────────────────────────────────────
+let lastSignal    = null;
+let analysisData  = null;
+let tradeData     = null;
+let signalCount   = 0;
+
+// ── AUDIO ALERT ──────────────────────────────────────────────
+function playSignalSound(type) {
+  try {
+    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+    const freqs = type === 'BUY_CE'
+      ? [523, 659, 784]  // C-E-G ascending = bullish
+      : [784, 659, 523]; // G-E-C descending = bearish
+
+    freqs.forEach((freq, i) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.35);
+    });
+  } catch(e) {}
+}
+
+// ── HANDLE INCOMING MESSAGES (add to existing handleMessage) ──
+// Add these cases to your existing switch statement:
+function handleSignalMessages(msg) {
+  switch(msg.type) {
+    case 'SIGNAL':
+      lastSignal = msg.data;
+      signalCount++;
+      playSignalSound(msg.data.type);
+      renderSignal(msg.data);
+      // Switch to dashboard to show signal
+      if (currentTab !== 'dash') switchTab('dash');
+      // Badge
+      document.getElementById('sig-badge').textContent = signalCount;
+      document.getElementById('sig-badge').style.display = 'inline-flex';
+      break;
+
+    case 'ANALYSIS':
+      analysisData = msg.data;
+      tradeData    = msg.data.trade;
+      if (currentTab === 'dash') renderAnalysis();
+      break;
+
+    case 'TRADE_CLOSED':
+      tradeData = msg.data;
+      if (currentTab === 'dash') renderAnalysis();
+      break;
+
+    case 'INIT':
+      if (msg.snapshot) {
+        analysisData = msg.snapshot;
+        tradeData    = msg.snapshot.trade;
+      }
+      break;
+  }
+}
+
+// ── RENDER SIGNAL CARD ────────────────────────────────────────
+function renderSignal(sig) {
+  const isCE = sig.type === 'BUY_CE';
+  const posFactors = sig.factors.filter(f => f.score > 0);
+  const negFactors = sig.factors.filter(f => f.score < 0);
+  const confClass  = sig.confidence >= 85 ? 'strong' : sig.confidence >= 70 ? 'moderate' : 'weak';
+
+  document.getElementById('signal-area').innerHTML = `
+    <div class="signal-alert ${isCE ? 'ce' : 'pe'}">
+      <div class="signal-type ${isCE ? 'ce' : 'pe'}">${isCE ? '▲ BUY CALL' : '▼ BUY PUT'}</div>
+      <div class="signal-conf">
+        Confidence: <b>${sig.confidence}%</b> — <b>${sig.strength}</b>
+        <div class="conf-bar"><div class="conf-fill ${confClass}" style="width:${sig.confidence}%"></div></div>
+      </div>
+      <div class="signal-factors">
+        ${posFactors.map(f => `<span class="factor-tag factor-pos">+${f.score} ${f.name}</span>`).join('')}
+        ${negFactors.map(f => `<span class="factor-tag factor-neg">${f.score} ${f.name}</span>`).join('')}
+      </div>
+      <div class="signal-meta">
+        <span>Signal #${sig.signalNum} of 5</span>
+        <span>@ ${sig.timeStr}</span>
+        <span>Sensex: ${sig.price?.toLocaleString('en-IN')}</span>
+      </div>
+    </div>`;
+}
+
+// ── RENDER ANALYSIS PANEL ─────────────────────────────────────
+function renderAnalysis() {
+  if (!analysisData) return;
+  const { indicators: ind, state, trade, signals } = analysisData;
+  if (!ind) return;
+
+  const stateColors = {
+    TRENDING_BULLISH: 'sp-bull', BREAKOUT: 'sp-bull',
+    TRENDING_BEARISH: 'sp-bear',
+    SIDEWAYS: 'sp-side', UNKNOWN: 'sp-side',
+    VOLATILE: 'sp-vol', REVERSAL: 'sp-vol',
+  };
+  const stateEmoji = {
+    TRENDING_BULLISH: '▲', TRENDING_BEARISH: '▼',
+    SIDEWAYS: '─', VOLATILE: '⚡', BREAKOUT: '🚀', REVERSAL: '↩', UNKNOWN: '?'
+  };
+
+  const stateClass = stateColors[state?.state] || 'sp-side';
+  const stateIco   = stateEmoji[state?.state]  || '?';
+
+  document.getElementById('analysis-area').innerHTML = `
+    <div class="sec-hdr"><div class="sec-title">LIVE ANALYSIS</div><div class="sec-line"></div>
+      <div class="sec-tag">Signals: ${signals?.totalToday || 0}/5</div>
+    </div>
+
+    <div class="state-pill ${stateClass}">
+      ${stateIco} ${state?.state?.replace('_',' ') || 'UNKNOWN'}
+    </div>
+
+    <div class="analysis-grid">
+      <div class="ana-box">
+        <div class="ana-label">EMA 5</div>
+        <div class="ana-val">${ind.ema5 ? ind.ema5.toLocaleString('en-IN') : '--'}</div>
+      </div>
+      <div class="ana-box">
+        <div class="ana-label">EMA 9</div>
+        <div class="ana-val">${ind.ema9 ? ind.ema9.toLocaleString('en-IN') : '--'}</div>
+      </div>
+      <div class="ana-box">
+        <div class="ana-label">VWAP</div>
+        <div class="ana-val ${ind.bias?.aboveVWAP ? 'bull' : 'bear'}">${ind.vwap ? ind.vwap.toLocaleString('en-IN') : '--'}</div>
+      </div>
+      <div class="ana-box">
+        <div class="ana-label">BB WIDTH</div>
+        <div class="ana-val ${ind.bb?.squeeze ? 'bear' : 'bull'}">${ind.bb?.bw ? ind.bb.bw.toFixed(2)+'%' : '--'}</div>
+      </div>
+      <div class="ana-box">
+        <div class="ana-label">BIAS</div>
+        <div class="ana-val ${ind.bias?.bullishEMA ? 'bull' : ind.bias?.bearishEMA ? 'bear' : 'neu'}">
+          ${ind.bias?.bullishEMA ? 'BULLISH' : ind.bias?.bearishEMA ? 'BEARISH' : 'NEUTRAL'}
+        </div>
+      </div>
+      <div class="ana-box">
+        <div class="ana-label">BB SQUEEZE</div>
+        <div class="ana-val ${ind.bb?.squeeze ? 'bear' : 'bull'}">${ind.bb?.squeeze ? 'YES ⚠️' : 'NO ✓'}</div>
+      </div>
+    </div>
+
+    ${trade ? `
+    <div class="trade-box">
+      <div class="trade-hdr">
+        <span class="trade-hdr-label">TRADE TRACKER</span>
+        <span class="trade-status" style="color:${trade.dailyPnL >= 0 ? 'var(--green)' : 'var(--red)}'}">
+          Daily P&L: ₹${trade.dailyPnL}
+        </span>
+      </div>
+      ${trade.activeTrade ? `
+        <div class="trade-row"><span class="trade-key">Type</span><span class="trade-val" style="color:${trade.activeTrade.type==='BUY_CE'?'var(--green)':'var(--red)}'}">${trade.activeTrade.type}</span></div>
+        <div class="trade-row"><span class="trade-key">Entry Premium</span><span class="trade-val">₹${trade.activeTrade.entryPremium}</span></div>
+        <div class="trade-row"><span class="trade-key">Current Premium</span><span class="trade-val">₹${trade.activeTrade.currentPremium}</span></div>
+        <div class="trade-row"><span class="trade-key">Target</span><span class="trade-val" style="color:var(--green)">₹${trade.activeTrade.target}</span></div>
+        <div class="trade-row"><span class="trade-key">Stop Loss</span><span class="trade-val" style="color:var(--red)">₹${trade.activeTrade.trailing ? trade.activeTrade.trailSL + ' (Trail)' : trade.activeTrade.sl}</span></div>
+        <div class="trade-row"><span class="trade-key">Unrealised P&L</span>
+          <span class="trade-val" style="color:${(trade.activeTrade.unrealisedPnL||0)>=0?'var(--green)':'var(--red)'}">
+            ₹${trade.activeTrade.unrealisedPnL || 0}
+          </span>
+        </div>
+      ` : `<div style="padding:14px;text-align:center;font-size:11px;color:var(--text3)">No active trade</div>`}
+      <div class="trade-row"><span class="trade-key">Today: W/L</span><span class="trade-val">${trade.wins}W / ${trade.losses}L</span></div>
+    </div>` : ''}`;
+}
+</script>

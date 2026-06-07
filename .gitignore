@@ -1,0 +1,29 @@
+# Dependencies — never commit, Railway installs automatically
+node_modules/
+
+# Environment / secret files — NEVER commit
+.env
+.env.local
+.env.production
+
+# Database files — Railway uses ephemeral storage
+data/*.db
+data/*.db-shm
+data/*.db-wal
+
+# Keep the pre-built instruments file in git
+# (downloaded at build time, needed at runtime)
+!data/instruments.json
+!data/instruments.meta.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Windows scripts
+*.bat
