@@ -16,10 +16,21 @@ const logger = require('./logger');
 const db = require('./database');
 const health = require('./health');
 
-// Multi-instrument imports
-const multiOrchestrator = require('./strategy/core/multiOrchestrator');
-const profiles = require('./strategy/dna/instrumentProfiles');
-const { StockScanner } = require('./strategy/stockScanner');
+// Multi-instrument imports — wrapped for visibility
+let multiOrchestrator, profiles, StockScanner;
+try {
+  multiOrchestrator = require('./strategy/core/multiOrchestrator');
+  profiles = require('./strategy/dna/instrumentProfiles');
+  const stockScannerModule = require('./strategy/stockScanner');
+  StockScanner = stockScannerModule.StockScanner;
+  logger.info('✅ All strategy modules loaded successfully');
+} catch (err) {
+  logger.error(`❌ FATAL: Failed to load strategy modules: ${err.message}`);
+  logger.error(err.stack);
+  // Keep process alive so Railway shows the error, then exit
+  setTimeout(() => process.exit(1), 5000);
+  throw err;
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -39,7 +50,6 @@ let scanner = null;
 // ── UNHANDLED ERRORS ───────────────────────────────────────
 process.on('uncaughtException', (err) => {
   logger.error(`Uncaught Exception: ${err.message}\n${err.stack}`);
-  // Keep running — don't exit on uncaught exceptions in production
 });
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -77,7 +87,6 @@ async function authenticate() {
       jwtToken = authToken;
       userProfile = resp.data.data;
 
-      // Set auth token on multi-orchestrator
       multiOrchestrator.setAuthToken(authToken);
       if (multiOrchestrator.marketData) {
         multiOrchestrator.marketData.brokerConfig.jwtToken = jwtToken;
@@ -86,8 +95,6 @@ async function authenticate() {
 
       logger.info('Angel One authenticated successfully');
       broadcastToAllClients({ type: 'AUTH_STATUS', status: 'connected', message: 'Angel One Live' });
-
-      // Initialize instruments after auth
       initializeInstruments();
     } else {
       throw new Error(resp.data?.message || 'Authentication failed');
@@ -95,7 +102,6 @@ async function authenticate() {
   } catch (err) {
     logger.error(`Authentication error: ${err.message}`);
     broadcastToAllClients({ type: 'AUTH_STATUS', status: 'error', message: err.message });
-    // Retry auth after 60 seconds
     setTimeout(authenticate, 60000);
   }
 }
@@ -117,7 +123,6 @@ function initializeInstruments() {
     }
   }
 
-  // Start stock scanner if enabled
   if (config.enableStockOptions) {
     try {
       scanner = new StockScanner(multiOrchestrator.marketData, multiOrchestrator);
@@ -141,7 +146,6 @@ function broadcastToAllClients(msg) {
   return sent;
 }
 
-// Wire multi-orchestrator broadcast to WebSocket
 multiOrchestrator.externalBroadcast = (msg) => {
   broadcastToAllClients(msg);
 };
@@ -151,7 +155,6 @@ wss.on('connection', (ws) => {
   logger.info('Client connected');
 
   try {
-    // Send INIT_STATE with all instruments
     ws.send(JSON.stringify({
       type: 'INIT_STATE',
       data: {
@@ -221,7 +224,6 @@ app.get('/api/instruments/:id/snapshot', (req, res) => {
   res.json(snapshot);
 });
 
-// Backward compatibility: SENSEX snapshot
 app.get('/api/sensex', (req, res) => {
   const snapshot = multiOrchestrator.getSnapshot('SENSEX');
   if (!snapshot) {
@@ -277,7 +279,6 @@ server.listen(PORT, HOST, () => {
   logger.info(`Active instruments: ${config.activeInstruments.join(', ')}`);
   logger.info(`Stock options enabled: ${config.enableStockOptions}`);
 
-  // Start auth after server is listening
   setTimeout(() => {
     authenticate();
   }, 1000);
@@ -288,7 +289,6 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
-// Graceful shutdown
 function gracefulShutdown(signal) {
   logger.info(`${signal} received, shutting down gracefully`);
   server.close(() => {

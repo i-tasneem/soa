@@ -22,8 +22,6 @@ class ExpiryCalculator {
   }
 
   _getWeeklyExpiry(d) {
-    // Find the expiryDayOfWeek in the current week
-    // If today is past that day, roll to next week
     const dayOfWeek = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
     const targetDay = this.expiryDayOfWeek;
 
@@ -35,8 +33,7 @@ class ExpiryCalculator {
     const expiryDate = new Date(d);
     expiryDate.setDate(d.getDate() + daysToTarget);
 
-    // Skip weekends (Saturday=6, Sunday=0) — but targetDay should already avoid them
-    // If targetDay is weekend, adjust to next valid weekday
+    // Skip weekends (just in case targetDay is misconfigured)
     if (targetDay === 0) { // Sunday -> Monday
       expiryDate.setDate(expiryDate.getDate() + 1);
     } else if (targetDay === 6) { // Saturday -> Monday
@@ -47,7 +44,6 @@ class ExpiryCalculator {
   }
 
   _getMonthlyExpiry(d) {
-    // Find the LAST expiryDayOfWeek of the current month
     const year = d.getFullYear();
     const month = d.getMonth();
     const lastDay = this._getLastDayOfMonth(year, month, this.expiryDayOfWeek);
@@ -63,18 +59,15 @@ class ExpiryCalculator {
   }
 
   _getLastDayOfMonth(year, month, dayOfWeek) {
-    // Get last day of month
     const lastDayOfMonth = new Date(year, month + 1, 0);
     const lastDay = lastDayOfMonth.getDate();
 
-    // Walk backwards to find the target day of week
     for (let day = lastDay; day >= 1; day--) {
       const date = new Date(year, month, day);
       if (date.getDay() === dayOfWeek) {
         return date;
       }
     }
-    // Fallback: return last day of month
     return lastDayOfMonth;
   }
 
@@ -107,26 +100,21 @@ if (require.main === module) {
     }
   }
 
-  // Nifty weekly (Tuesday=2)
   const niftyWeekly = new ExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 2 });
   test('Nifty weekly: June 6, 2026 (Sat) → June 9', niftyWeekly.getCurrentExpiry(new Date(2026, 5, 6)), '09JUN2026');
   test('Nifty weekly: June 9, 2026 (Tue) → June 9', niftyWeekly.getCurrentExpiry(new Date(2026, 5, 9)), '09JUN2026');
   test('Nifty weekly: June 10, 2026 (Wed) → June 16', niftyWeekly.getCurrentExpiry(new Date(2026, 5, 10)), '16JUN2026');
 
-  // BankNifty monthly (Tuesday=2)
   const bankNiftyMonthly = new ExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
   test('BankNifty monthly: June 15, 2026 → June 30', bankNiftyMonthly.getCurrentExpiry(new Date(2026, 5, 15)), '30JUN2026');
   test('BankNifty monthly: June 30, 2026 → July 28', bankNiftyMonthly.getCurrentExpiry(new Date(2026, 5, 30)), '28JUL2026');
 
-  // Sensex weekly (Thursday=4)
   const sensexWeekly = new ExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 4 });
   test('Sensex weekly: June 6, 2026 (Sat) → June 11', sensexWeekly.getCurrentExpiry(new Date(2026, 5, 6)), '11JUN2026');
 
-  // Bankex monthly (Thursday=4)
   const bankexMonthly = new ExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 4 });
   test('Bankex monthly: June 15, 2026 → June 25', bankexMonthly.getCurrentExpiry(new Date(2026, 5, 15)), '25JUN2026');
 
-  // Stock option monthly (Tuesday=2)
   const stockMonthly = new ExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
   test('Stock option: June 20, 2026 → June 30', stockMonthly.getCurrentExpiry(new Date(2026, 5, 20)), '30JUN2026');
 

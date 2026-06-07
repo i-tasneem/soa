@@ -1,10 +1,10 @@
 // ============================================================
-//  LOGGER — Structured Logging Setup
-//  Replaces console.log with Winston for production-grade logging
-//  Outputs to:
-//    - logs/app.log (all logs)
-//    - logs/error.log (errors only)
-//    - console (development)
+// LOGGER — Structured Logging Setup
+// Replaces console.log with Winston for production-grade logging
+// Outputs to:
+// - logs/app.log (all logs)
+// - logs/error.log (errors only)
+// - console (always — Railway/Docker visible)
 // ============================================================
 
 const winston = require('winston');
@@ -48,12 +48,7 @@ const logger = winston.createLogger({
       maxsize: 5242880, // 5MB
       maxFiles: 10,
     }),
-  ],
-});
-
-// Add console transport in development
-if (process.env.NODE_ENV !== 'production') {
-  logger.add(
+    // Console — ALWAYS active (Railway, Docker, local dev)
     new winston.transports.Console({
       format: winston.format.combine(
         winston.format.colorize(),
@@ -61,9 +56,9 @@ if (process.env.NODE_ENV !== 'production') {
           return `[${timestamp}] ${level}: ${message}`;
         })
       ),
-    })
-  );
-}
+    }),
+  ],
+});
 
 // Log levels helper methods
 module.exports = {

@@ -183,7 +183,7 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
   const priceAboveBB = bb5 && price > bb5.upper;
   const priceBelowBB = bb5 && price < bb5.lower;
 
-  // ---- Grade A: ATR calculation ----
+  // ATR
   const atr14 = calcATR(c5, 14);
   const atr14_MA20 = (() => {
     if (c5.length < 20) return null;
@@ -197,7 +197,7 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
     return parseFloat((atrs.slice(-20).reduce((a, b) => a + b, 0) / 20).toFixed(2));
   })();
 
-  // ---- Grade A: Volume analysis ----
+  // Volume
   const volumes = c5.slice(-20).map(c => c.volume || c.ticks || 0);
   const avgVolume = volumes.length ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
   const currentVolume = c5[c5.length - 1]?.volume || c5[c5.length - 1]?.ticks || 0;
@@ -217,4 +217,21 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
   };
 }
 
-module.exports = { calcEMA, calcEMAArray, calcBollingerBands, calcATR, VWAPCalculator, analyzeCandle, getIndicators };
+// ── BACKWARD COMPATIBILITY WRAPPER ───────────────────────────
+// instrumentEngine.js and orchestrator.js call calculateIndicators(candles5m, candles15m, candles3m, ltp)
+function calculateIndicators(candles5m, candles15m, candles3m, ltp) {
+  // getIndicators signature: (candles5m, candles15m, candles30m, vwap)
+  // We pass candles3m as the 30m slot and null for vwap (ltp is not a vwap object)
+  return getIndicators(candles5m, candles15m, candles3m, null);
+}
+
+module.exports = {
+  calcEMA,
+  calcEMAArray,
+  calcBollingerBands,
+  calcATR,
+  VWAPCalculator,
+  analyzeCandle,
+  getIndicators,
+  calculateIndicators,  // ← ADDED: backward compatibility for orchestrator.js & instrumentEngine.js
+};
