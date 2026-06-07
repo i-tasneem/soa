@@ -1,8 +1,6 @@
 // ============================================================
 // MARKET STATE ENGINE
-// Classifies: TRENDING_BULLISH | TRENDING_BEARISH |
-// SIDEWAYS | VOLATILE | BREAKOUT | REVERSAL
-// Grade A: Integrated regime detection
+// Detects market regime: TRENDING, SIDEWAYS, VOLATILE, REVERSAL, BREAKOUT
 // ============================================================
 
 const STATES = {
@@ -18,147 +16,196 @@ const STATES = {
 class MarketStateEngine {
   constructor() {
     this.state = STATES.UNKNOWN;
+    this.confidence = 0;
     this.history = [];
-    this.maxHistory = 10;
-    this.lastPrice = null;
-    this.priceHistory = [];
+    this.maxHistory = 50;
+    this._lastPrice = null;
+    this._lastPriceTs = 0;
   }
 
-  classify(indicators, oiAnalysis, regime = null) {
-    if (!indicators) return { state: STATES.UNKNOWN, reasons: [], score: 0 };
+  update(indicators, candles) {
+    if (!indicators || !candles || candles.length < 3) {
+      return { state: this.state, confidence: this.confidence };
+    }
 
-    const { bias, bb, momentum, candle, breakout, price } = indicators;
-    const reasons = [];
-    let bullScore = 0;
-    let bearScore = 0;
+    const { ema5, ema9, ema21, vwap, bb, rsi, atr, volume } = indicators;
+    const last3 = candles.slice(-3);
+    const lastCandle = last3[last3.length - 1];
+    const prevCandle = last3[last3.length - 2];
+    const price = lastCandle?.close || indicators.price;
 
-    this.priceHistory.push(price);
-    if (this.priceHistory.length > 20) this.priceHistory.shift();
+    let state = STATES.UNKNOWN;
+    let confidence = 0;
+    let reasons = [];
 
-    // EMA ALIGNMENT
-    if (bias.bullishEMA) { bullScore += 2; reasons.push('EMA_BULL_ALIGNED'); }
-    if (bias.bearishEMA) { bearScore += 2; reasons.push('EMA_BEAR_ALIGNED'); }
+    // Trend detection via EMA alignment
+    const bullishEMA = ema5 > ema9 && ema9 > ema21;
+    const bearishEMA = ema5 < ema9 && ema9 < ema21;
+    const emaSpread = Math.abs(ema5 - ema21) / (ema21 || 1);
 
-    // VWAP POSITION
-    if (bias.aboveVWAP) { bullScore += 1; reasons.push('ABOVE_VWAP'); }
-    if (bias.belowVWAP) { bearScore += 1; reasons.push('BELOW_VWAP'); }
+    // VWAP position
+    const aboveVWAP = price > vwap;
+    const belowVWAP = price < vwap;
 
-    // HTF BIAS
-    if (bias.htfBullish) { bullScore += 2; reasons.push('HTF_BULL'); }
-    if (bias.htfBearish) { bearScore += 2; reasons.push('HTF_BEAR'); }
+    // Bollinger Band squeeze
+    const bbSqueeze = bb?.squeeze || false;
+    const bbWidth = bb?.bw || 0;
 
-    // MOMENTUM
-    if (momentum.bullMomentum) { bullScore += 1; reasons.push('BULL_MOMENTUM'); }
-    if (momentum.bearMomentum) { bearScore += 1; reasons.push('BEAR_MOMENTUM'); }
+    // RSI
+    const rsiVal = rsi || 50;
+    const rsiOverbought = rsiVal > 70;
+    const rsiOversold = rsiVal < 30;
 
-    // CANDLE STRENGTH
-    if (candle.last?.isStrong && candle.last?.bullish) { bullScore += 1; reasons.push('STRONG_BULL_CANDLE'); }
-    if (candle.last?.isStrong && candle.last?.bearish) { bearScore += 1; reasons.push('STRONG_BEAR_CANDLE'); }
+    // ATR volatility
+    const atrHigh = atr && atr > (ema21 * 0.002); // ATR > 0.2% of price
 
-    // BOLLINGER
-    const bb5 = bb['5m'];
-    let isSqueeze = bb5?.squeeze;
-    let isExpanding = bb5?.expanding || (!isSqueeze && bb5?.bandwidth > 2);
-    let isVolatile = bb5?.bandwidth > 4;
+    // Volume
+    const volSpike = volume && volume.avg > 0 && volume.last > volume.avg * 1.5;
 
-    if (breakout.priceAboveBB) { bullScore += 2; reasons.push('PRICE_ABOVE_BB'); }
-    if (breakout.priceBelowBB) { bearScore += 2; reasons.push('PRICE_BELOW_BB'); }
+    // Candle structure
+    const bullishCandle = lastCandle?.close > lastCandle?.open;
+    const bearishCandle = lastCandle?.close < lastCandle?.open;
+    const bodySize = Math.abs(lastCandle?.close - lastCandle?.open) || 0;
+    const range = lastCandle?.high - lastCandle?.low || 1;
+    const bodyRatio = range > 0 ? bodySize / range : 0;
 
-    // OI CONFIRMATION
-    if (oiAnalysis?.ceBuyConfirmed) { bullScore += 1; reasons.push('OI_BULL'); }
-    if (oiAnalysis?.peBuyConfirmed) { bearScore += 1; reasons.push('OI_BEAR'); }
+    // Breakout detection
+    const prevHigh = prevCandle?.high || 0;
+    const prevLow = prevCandle?.low || 0;
+    const breakoutUp = lastCandle?.high > prevHigh && bullishCandle && bodyRatio > 0.6;
+    const breakoutDown = lastCandle?.low < prevLow && bearishCandle && bodyRatio > 0.6;
 
-    // RANGING DETECTION
-    const isRanging = this._detectRanging();
+    // Reversal detection
+    const prevBullish = prevCandle?.close > prevCandle?.open;
+    const prevBearish = prevCandle?.close < prevCandle?.open;
+    const reversalUp = prevBearish && bullishCandle && bodyRatio > 0.5 && rsiOversold;
+    const reversalDown = prevBullish && bearishCandle && bodyRatio > 0.5 && rsiOverbought;
 
-    // REGIME INTEGRATION (Grade A)
-    if (regime) {
-      if (regime.regime === 'EXTREME' || regime.regime === 'DEAD') {
-        reasons.push(`REGIME_${regime.regime}`);
-        isVolatile = true;
-      } else if (regime.regime === 'HIGH') {
-        reasons.push('REGIME_HIGH_VOL');
-      } else if (regime.regime === 'ELEVATED') {
-        reasons.push('REGIME_ELEVATED');
+    // Score-based state determination
+    let trendScore = 0;
+    let volScore = 0;
+
+    if (bullishEMA) {
+      trendScore += 2;
+      reasons.push('Bullish EMA alignment');
+    }
+    if (bearishEMA) {
+      trendScore -= 2;
+      reasons.push('Bearish EMA alignment');
+    }
+    if (aboveVWAP) {
+      trendScore += 1;
+      reasons.push('Above VWAP');
+    }
+    if (belowVWAP) {
+      trendScore -= 1;
+      reasons.push('Below VWAP');
+    }
+    if (volSpike) {
+      volScore += 2;
+      reasons.push('Volume spike');
+    }
+    if (atrHigh) {
+      volScore += 1;
+      reasons.push('High volatility (ATR)');
+    }
+    if (bbSqueeze) {
+      volScore += 1;
+      reasons.push('BB squeeze');
+    }
+
+    if (breakoutUp && volSpike) {
+      state = STATES.BREAKOUT;
+      confidence = 85;
+      reasons.push('Breakout up with volume');
+    } else if (breakoutDown && volSpike) {
+      state = STATES.BREAKOUT;
+      confidence = 85;
+      reasons.push('Breakout down with volume');
+    } else if (reversalUp && volSpike) {
+      state = STATES.REVERSAL;
+      confidence = 75;
+      reasons.push('Bullish reversal');
+    } else if (reversalDown && volSpike) {
+      state = STATES.REVERSAL;
+      confidence = 75;
+      reasons.push('Bearish reversal');
+    } else if (bbSqueeze && Math.abs(trendScore) < 2) {
+      state = STATES.SIDEWAYS;
+      confidence = 70;
+      reasons.push('BB squeeze + no trend');
+    } else if (volScore >= 3 && Math.abs(trendScore) < 2) {
+      state = STATES.VOLATILE;
+      confidence = 65;
+      reasons.push('High volatility, no clear trend');
+    } else if (trendScore >= 2) {
+      state = STATES.TRENDING_BULLISH;
+      confidence = Math.min(90, 60 + trendScore * 10 + (volSpike ? 10 : 0));
+      reasons.push('Strong bullish trend');
+    } else if (trendScore <= -2) {
+      state = STATES.TRENDING_BEARISH;
+      confidence = Math.min(90, 60 + Math.abs(trendScore) * 10 + (volSpike ? 10 : 0));
+      reasons.push('Strong bearish trend');
+    } else {
+      state = STATES.SIDEWAYS;
+      confidence = 50;
+      reasons.push('No clear trend');
+    }
+
+    // Smooth state transitions
+    if (this.state !== state && this.confidence > 70) {
+      // Require 2 consecutive same states for high confidence transitions
+      const recent = this.history.slice(-2);
+      const allSame = recent.every(h => h.state === state);
+      if (!allSame) {
+        state = this.state;
+        confidence = Math.max(confidence - 20, 30);
       }
     }
 
-    // CLASSIFY STATE
-    let state;
-
-    if (isVolatile && !bias.bullishEMA && !bias.bearishEMA) {
-      state = STATES.VOLATILE;
-    } else if (isSqueeze && !isExpanding) {
-      state = STATES.SIDEWAYS;
-      reasons.push('BB_SQUEEZE');
-    } else if (isRanging && Math.abs(bullScore - bearScore) < 2) {
-      state = STATES.SIDEWAYS;
-      reasons.push('PRICE_RANGING');
-    } else if (breakout.priceAboveBB && bias.bullishEMA && momentum.bullMomentum) {
-      state = STATES.BREAKOUT;
-      reasons.push('BULL_BREAKOUT');
-    } else if (breakout.priceBelowBB && bias.bearishEMA && momentum.bearMomentum) {
-      state = STATES.BREAKOUT;
-      reasons.push('BEAR_BREAKOUT');
-    } else if (candle.last?.isHammer && bias.bearishEMA) {
-      state = STATES.REVERSAL;
-      reasons.push('HAMMER_REVERSAL');
-    } else if (candle.last?.isShootingStar && bias.bullishEMA) {
-      state = STATES.REVERSAL;
-      reasons.push('SHOOTING_STAR_REVERSAL');
-    } else if (bullScore > bearScore + 2) {
-      state = STATES.TRENDING_BULLISH;
-    } else if (bearScore > bullScore + 2) {
-      state = STATES.TRENDING_BEARISH;
-    } else {
-      state = STATES.SIDEWAYS;
-    }
+    this.state = state;
+    this.confidence = confidence;
 
     const result = {
       state,
-      regime: regime?.regime || null,
-      bullScore,
-      bearScore,
+      confidence,
       reasons,
-      isSqueeze,
-      isExpanding,
-      isVolatile,
-      isRanging,
+      indicators: {
+        bullishEMA,
+        bearishEMA,
+        aboveVWAP,
+        belowVWAP,
+        bbSqueeze,
+        rsiOverbought,
+        rsiOversold,
+        atrHigh,
+        volSpike,
+        breakoutUp,
+        breakoutDown,
+        reversalUp,
+        reversalDown,
+      },
       timestamp: Date.now(),
     };
 
-    this.state = state;
     this.history.push(result);
     if (this.history.length > this.maxHistory) this.history.shift();
 
     return result;
   }
 
-  _detectRanging() {
-    if (this.priceHistory.length < 10) return false;
-    const recent = this.priceHistory.slice(-10);
-    const max = Math.max(...recent);
-    const min = Math.min(...recent);
-    return (max - min) < 150;
+  getState() {
+    return { state: this.state, confidence: this.confidence, history: this.history };
   }
 
-  isTradeable() {
-    return [
-      STATES.TRENDING_BULLISH,
-      STATES.TRENDING_BEARISH,
-      STATES.BREAKOUT,
-    ].includes(this.state);
+  reset() {
+    this.state = STATES.UNKNOWN;
+    this.confidence = 0;
+    this.history = [];
+    this._lastPrice = null;
+    this._lastPriceTs = 0;
+    console.log('🔄 Market state engine reset');
   }
-
-  isBullish() {
-    return this.state === STATES.TRENDING_BULLISH || this.state === STATES.BREAKOUT;
-  }
-
-  isBearish() {
-    return this.state === STATES.TRENDING_BEARISH;
-  }
-
-  getState() { return this.state; }
 }
 
-module.exports = { MarketStateEngine: new MarketStateEngine(), STATES };
+module.exports = { MarketStateEngine: new MarketStateEngine(), STATES, MarketStateEngineClass: MarketStateEngine };

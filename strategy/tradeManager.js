@@ -1,159 +1,171 @@
 // ============================================================
-// TRADE MANAGER — Institutional Grade A
-// Dynamic target/SL from signal DNA
-// Trailing SL at 60% of target profit
+// TRADE MANAGER
+// Manages open trades: entry, SL, target, trailing, exit
 // ============================================================
 
 class TradeManager {
   constructor() {
     this.activeTrade = null;
-    this.confirmedToday = 0;
-    this.maxConfirmed = 3;
-    this.closedTrades = [];
+    this.trades = [];
     this.dailyPnL = 0;
-    this.lots = 15;
-    this.lotSize = 20; // default fallback
+    this.wins = 0;
+    this.losses = 0;
+    this._lastResetDate = null;
   }
 
-  setLots(n) { this.lots = n; }
+  openTrade(signal, premium, lots, profile) {
+    this._checkDayReset();
 
-  canOpenNewTrade() {
-    if (this.activeTrade) {
-      return { allowed: false, reason: 'Active trade exists' };
-    }
-    if (this.confirmedToday >= this.maxConfirmed) {
-      return { allowed: false, reason: 'Daily CONFIRMED limit reached' };
-    }
-    return { allowed: true };
-  }
+    if (this.activeTrade) return null;
 
-  openTrade(signal, premium, contract, opts = {}, dna = null) {
-    const check = this.canOpenNewTrade();
-    if (!check.allowed) return null;
-    if (!Number.isFinite(premium)) return null;
+    const atr = signal.indicators?.atr || 0;
+    const price = signal.price || 0;
+    const atrMult = profile?.atrMultiplier || { target: 0.8, sl: 0.6 };
 
-    const lotSize = dna?.lotSize || this.lotSize || 20;
-    const targetPts = signal.targetPts || 25;
-    const slPts = signal.slPts || 20;
+    const target = premium + (atr * atrMult.target);
+    const sl = premium - (atr * atrMult.sl);
+    const trailSL = sl;
 
-    this.activeTrade = {
-      id: `TRADE_${Date.now()}`,
+    const trade = {
+      id: `TRADE_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       signalId: signal.id,
       type: signal.type,
-      entryPrice: signal.price ?? null,
+      entryPrice: signal.price,
       entryPremium: premium,
       currentPremium: premium,
-      entryTime: Date.now(),
-      strike: contract?.strike ?? signal.strike ?? null,
-      optionToken: contract?.token ?? signal.optionToken ?? null,
-      expiry: contract?.expiry ?? signal.expiry ?? null,
-      target: parseFloat((premium + targetPts).toFixed(2)),
-      sl: parseFloat((premium - slPts).toFixed(2)),
-      trailSL: parseFloat((premium - slPts).toFixed(2)),
+      target: Math.round(target * 100) / 100,
+      sl: Math.round(sl * 100) / 100,
+      trailSL: Math.round(trailSL * 100) / 100,
       trailing: false,
-      maxProfit: 0,
-      lots: opts.lots || this.lots || 15,
-      lotSize,
-      targetPts,
-      slPts,
-      isEarlyEntry: opts.early || false,
-      earlyEntryReason: opts.reason || null,
-      status: 'OPEN'
+      lots: lots || profile?.lotSize || 15,
+      entryTime: Date.now(),
+      entryTimeStr: this._formatTime(Date.now()),
+      unrealisedPnL: 0,
+      status: 'OPEN',
+      exitPrice: null,
+      exitPremium: null,
+      exitTime: null,
+      exitReason: null,
+      pnl: 0,
     };
 
-    this.confirmedToday++;
-    return this.activeTrade;
+    this.activeTrade = trade;
+    this.trades.push(trade);
+
+    return trade;
   }
 
-  update(currentPremium) {
-    if (!this.activeTrade || this.activeTrade.status !== 'OPEN') return null;
+  updateTrade(premium, price) {
+    if (!this.activeTrade) return null;
+
     const trade = this.activeTrade;
-    trade.currentPremium = currentPremium;
+    trade.currentPremium = premium;
 
-    const profit = currentPremium - trade.entryPremium;
-    trade.maxProfit = Math.max(trade.maxProfit, profit);
-    trade.unrealisedPnL = parseFloat((profit * trade.lotSize * trade.lots).toFixed(2));
+    const lotSize = trade.lots;
+    const entryPrem = trade.entryPremium;
+    const pnl = (premium - entryPrem) * lotSize;
+    trade.unrealisedPnL = Math.round(pnl * 100) / 100;
 
-    // Trailing SL activates at 60% of target
-    const trailTrigger = trade.targetPts * 0.6;
-    if (profit >= trailTrigger && !trade.trailing) {
+    // Trailing stop logic
+    if (premium >= trade.target * 0.5 && !trade.trailing) {
       trade.trailing = true;
-      trade.trailSL = trade.entryPremium;
-      console.log(`🔒 Trailing SL activated at 60% target — SL moved to breakeven ₹${trade.trailSL}`);
+      trade.trailSL = Math.round((entryPrem + (premium - entryPrem) * 0.3) * 100) / 100;
     }
 
     if (trade.trailing) {
-      const trailAmount = trade.targetPts * 0.4;
-      const newTrailSL = currentPremium - trailAmount;
-      if (newTrailSL > trade.trailSL) {
-        trade.trailSL = parseFloat(newTrailSL.toFixed(2));
+      const newTrail = Math.round((entryPrem + (premium - entryPrem) * 0.3) * 100) / 100;
+      if (newTrail > trade.trailSL) {
+        trade.trailSL = newTrail;
       }
     }
 
+    // Check exit conditions
+    if (premium >= trade.target) {
+      return this.closeTrade(premium, price, 'TARGET_HIT');
+    }
+
     const effectiveSL = trade.trailing ? trade.trailSL : trade.sl;
-    if (currentPremium <= effectiveSL) {
-      return this._closeTrade('SL_HIT', currentPremium, effectiveSL);
+    if (premium <= effectiveSL) {
+      return this.closeTrade(premium, price, trade.trailing ? 'TRAIL_SL_HIT' : 'SL_HIT');
     }
-    if (currentPremium >= trade.target) {
-      return this._closeTrade('TARGET_HIT', currentPremium, trade.target);
-    }
-    return null;
+
+    return { ...trade, updated: true };
   }
 
-  manualExit(reason = 'MANUAL', currentPremium) {
+  closeTrade(premium, price, reason) {
     if (!this.activeTrade) return null;
-    return this._closeTrade(reason, currentPremium || this.activeTrade.currentPremium);
-  }
 
-  _closeTrade(reason, exitPremium, exitRef) {
     const trade = this.activeTrade;
-    const profit = exitPremium - trade.entryPremium;
-    const pnl = parseFloat((profit * trade.lotSize * trade.lots).toFixed(2));
+    trade.currentPremium = premium;
+    trade.exitPrice = price;
+    trade.exitPremium = premium;
+    trade.exitTime = Date.now();
+    trade.exitTimeStr = this._formatTime(Date.now());
+    trade.exitReason = reason;
+    trade.status = reason === 'TARGET_HIT' ? 'WIN' : 'LOSS';
 
-    const closed = {
-      ...trade,
-      exitPremium,
-      exitTime: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
-      reason,
-      profit: parseFloat(profit.toFixed(2)),
-      pnl,
-      status: pnl >= 0 ? 'WIN' : 'LOSS',
-    };
+    const lotSize = trade.lots;
+    const pnl = (premium - trade.entryPremium) * lotSize;
+    trade.pnl = Math.round(pnl * 100) / 100;
+    trade.unrealisedPnL = trade.pnl;
 
-    this.closedTrades.push(closed);
-    this.dailyPnL += pnl;
+    this.dailyPnL += trade.pnl;
+    if (trade.status === 'WIN') this.wins++;
+    else this.losses++;
+
+    const result = { ...trade };
     this.activeTrade = null;
 
-    const emoji = pnl >= 0 ? '✅' : '❌';
-    console.log(`${emoji} Trade closed: ${reason} Premium: ₹${exitPremium} P&L: ₹${pnl}`);
-
-    return closed;
+    return result;
   }
 
-  resetDay() {
-    this.activeTrade = null;
-    this.closedTrades = [];
-    this.dailyPnL = 0;
-    this.confirmedToday = 0;
-    console.log('📅 Trade manager reset for new day');
+  forceClose(premium, price, reason) {
+    return this.closeTrade(premium, price, reason || 'MANUAL_CLOSE');
   }
 
-  getState() {
-    const wins = this.closedTrades.filter(t => t.status === 'WIN').length;
-    const losses = this.closedTrades.filter(t => t.status === 'LOSS').length;
+  getActiveTrade() {
+    return this.activeTrade ? { ...this.activeTrade } : null;
+  }
 
+  getStats() {
     return {
-      activeTrade: this.activeTrade,
-      closedTrades: this.closedTrades,
-      dailyPnL: parseFloat(this.dailyPnL.toFixed(2)),
-      totalTrades: this.closedTrades.length,
-      wins,
-      losses,
-      winRate: this.closedTrades.length > 0
-        ? Math.round((wins / this.closedTrades.length) * 100)
-        : 0,
+      dailyPnL: this.dailyPnL,
+      wins: this.wins,
+      losses: this.losses,
+      totalTrades: this.trades.length,
+      activeTrade: this.activeTrade ? { ...this.activeTrade } : null,
     };
+  }
+
+  _checkDayReset() {
+    const now = new Date();
+    const today = now.toDateString();
+    if (this._lastResetDate !== today) {
+      this._lastResetDate = today;
+      this.activeTrade = null;
+      this.trades = [];
+      this.dailyPnL = 0;
+      this.wins = 0;
+      this.losses = 0;
+      console.log('🔄 Trade manager reset for new day');
+    }
+  }
+
+  _formatTime(ts) {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  }
+
+  reset() {
+    this.activeTrade = null;
+    this.trades = [];
+    this.dailyPnL = 0;
+    this.wins = 0;
+    this.losses = 0;
+    this._lastResetDate = null;
+    console.log('🔄 Trade manager reset');
   }
 }
 
 module.exports = new TradeManager();
+module.exports.TradeManager = TradeManager;

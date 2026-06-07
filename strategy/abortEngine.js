@@ -1,132 +1,93 @@
 // ============================================================
 // ABORT ENGINE
-// Setup confirmation / abort logic for near-entry signals
+// Detects conditions that should abort a trade setup
 // ============================================================
 
 class AbortEngine {
   constructor() {
-    this.setups = new Map(); // id -> {signal, price, timestamp, direction}
+    this.aborts = [];
+    this.maxAborts = 50;
+    this._lastResetDate = null;
   }
 
-  /**
-   * Register a new SETUP signal for tracking
-   * @param {Object} signal - The SETUP signal object
-   * @param {number} price - Entry price (spot)
-   * @param {number} timestamp - Unix ms timestamp
-   * @returns {Object} The stored setup
-   */
-  addSetup(signal, price, timestamp) {
-    const setup = {
-      signal,
-      price,
-      timestamp,
-      direction: signal.type === 'BUY_CE' ? 'UP' : 'DOWN',
-    };
-    this.setups.set(signal.id, setup);
+  check(ctx) {
+    const { price, indicators, marketState, oiAnalysis, regime, signal, timestamp } = ctx;
+    if (!indicators || !marketState || !oiAnalysis) return null;
 
-    // Auto-expire after 5 minutes
-    setTimeout(() => {
-      this.setups.delete(signal.id);
-    }, 5 * 60 * 1000);
+    const { ema5, ema9, ema21, vwap, rsi, bb, atr } = indicators;
+    const { state, confidence } = marketState;
+    const { isPinned, nearPin, pcrTrend, oiVelocity } = oiAnalysis;
 
-    return setup;
-  }
+    let abort = null;
+    let reasons = [];
 
-  /**
-   * Check if any active setup should be aborted
-   * @param {number} price - Current price
-   * @param {number} timestamp - Current timestamp
-   * @returns {Object|null} {action:'ABORT', setupId, reason} or null
-   */
-  checkAbort(price, timestamp) {
-    for (const [id, setup] of this.setups) {
-      // 3-minute TTL for abort checks
-      if (timestamp - setup.timestamp > 3 * 60 * 1000) {
-        this.setups.delete(id);
-        continue;
-      }
-
-      const movePct = (price - setup.price) / setup.price;
-
-      if (setup.direction === 'UP' && movePct <= -0.004) {
-        this.setups.delete(id);
-        return {
-          action: 'ABORT',
-          setupId: id,
-          setup: setup.signal,
-          reason: `Price reversed ${(Math.abs(movePct) * 100).toFixed(2)}% against UP setup`,
-          entryPrice: setup.price,
-          currentPrice: price,
-        };
-      }
-
-      if (setup.direction === 'DOWN' && movePct >= 0.004) {
-        this.setups.delete(id);
-        return {
-          action: 'ABORT',
-          setupId: id,
-          setup: setup.signal,
-          reason: `Price reversed ${(Math.abs(movePct) * 100).toFixed(2)}% against DOWN setup`,
-          entryPrice: setup.price,
-          currentPrice: price,
-        };
-      }
+    // Pin zone abort
+    if (isPinned || nearPin) {
+      reasons.push('Price pinned near OI wall');
     }
-    return null;
-  }
 
-  /**
-   * Check if any active setup should be confirmed
-   * @param {number} price - Current price
-   * @param {number} vwap - Current VWAP value
-   * @param {number} volume - Current volume
-   * @param {number} avgVolume - Average volume (20-period)
-   * @param {number} timestamp - Current timestamp
-   * @returns {Object|null} {action:'CONFIRM', setupId, signal} or null
-   */
-  checkConfirm(price, vwap, volume, avgVolume, timestamp) {
-    for (const [id, setup] of this.setups) {
-      // 3-minute TTL for confirm checks
-      if (timestamp - setup.timestamp > 3 * 60 * 1000) {
-        this.setups.delete(id);
-        continue;
-      }
-
-      const direction = setup.direction;
-      const vwapBreak = direction === 'UP' ? price > vwap : price < vwap;
-      const volumeConfirm = avgVolume > 0 && volume > avgVolume * 1.3;
-
-      if (vwapBreak && volumeConfirm) {
-        this.setups.delete(id);
-        return {
-          action: 'CONFIRM',
-          setupId: id,
-          signal: setup.signal,
-          reason: `VWAP break ${direction} with volume ${(volume / avgVolume).toFixed(2)}x avg`,
-        };
-      }
+    // Low confidence state
+    if (confidence < 40) {
+      reasons.push('Low market state confidence');
     }
-    return null;
-  }
 
-  /**
-   * Manual cleanup of expired setups
-   * @param {number} timestamp - Current timestamp
-   */
-  cleanup(timestamp) {
-    for (const [id, setup] of this.setups) {
-      if (timestamp - setup.timestamp > 5 * 60 * 1000) {
-        this.setups.delete(id);
-      }
+    // Extreme RSI
+    if (rsi > 75 || rsi < 25) {
+      reasons.push('Extreme RSI — potential reversal');
     }
+
+    // BB squeeze with no direction
+    if (bb?.squeeze && state === 'SIDEWAYS') {
+      reasons.push('BB squeeze in sideways market');
+    }
+
+    // Rapid PCR change
+    if (pcrTrend === 'RISING_FAST' || pcrTrend === 'FALLING_FAST') {
+      reasons.push('Rapid PCR change — unstable');
+    }
+
+    // High OI velocity
+    if (oiVelocity && (Math.abs(oiVelocity.cePerMin) > 5000 || Math.abs(oiVelocity.pePerMin) > 5000)) {
+      reasons.push('High OI velocity — volatile');
+    }
+
+    // ATR too low
+    if (atr && atr < (price * 0.0005)) {
+      reasons.push('Extremely low volatility');
+    }
+
+    if (reasons.length >= 3) {
+      abort = {
+        id: `ABORT_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        reasons,
+        price,
+        timestamp,
+        timeStr: this._formatTime(timestamp),
+        severity: reasons.length >= 4 ? 'HIGH' : 'MEDIUM',
+      };
+
+      this.aborts.push(abort);
+      if (this.aborts.length > this.maxAborts) this.aborts.shift();
+    }
+
+    return abort;
   }
 
-  /**
-   * Get count of active setups
-   */
-  getActiveCount() {
-    return this.setups.size;
+  _formatTime(ts) {
+    const d = new Date(ts);
+    return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  }
+
+  reset() {
+    this.aborts = [];
+    this._lastResetDate = null;
+    console.log('🔄 Abort engine reset');
+  }
+
+  getAborts() {
+    return [...this.aborts];
   }
 }
 
 module.exports = AbortEngine;
+module.exports.AbortEngine = AbortEngine;

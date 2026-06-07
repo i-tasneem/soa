@@ -69,6 +69,14 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .clock{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text);letter-spacing:2px;line-height:1}
 .date-line{font-size:8px;color:var(--text3);font-family:var(--mono);letter-spacing:1px;margin-top:2px}
 
+/* ── INSTRUMENT TABS ────────────────────────────────────── */
+#instrument-tabs{position:relative;z-index:10;display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--bg2);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+#instrument-tabs::-webkit-scrollbar{display:none}
+.inst-tab{flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);background:transparent;color:var(--text3);font-family:var(--mono);font-size:9px;letter-spacing:0.5px;cursor:pointer;transition:all 0.2s;white-space:nowrap}
+.inst-tab.active{border-color:var(--gold);color:var(--gold);background:var(--gold-bg)}
+.inst-tab.flash{animation:tabFlash 2s ease}
+@keyframes tabFlash{0%,100%{border-color:var(--gold);box-shadow:0 0 0 0 rgba(240,165,0,0)}50%{border-color:var(--gold);box-shadow:0 0 8px rgba(240,165,0,0.4);color:var(--gold)}}
+
 /* ── SENSEX TICKER BAR ──────────────────────────────────── */
 .ticker{position:relative;z-index:10;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;align-items:center;gap:12px}
 .sensex-price{font-family:var(--display);font-size:28px;letter-spacing:2px;color:var(--gold);line-height:1;text-shadow:0 0 15px rgba(240,165,0,0.2)}
@@ -91,6 +99,24 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .sribbon-label{font-family:var(--display);font-size:16px;letter-spacing:2px;line-height:1}
 .sribbon-desc{font-size:10px;color:var(--text3);font-family:var(--mono);margin-left:auto}
 .sribbon-timer{font-family:var(--mono);font-size:11px;color:var(--gold);font-weight:700}
+
+/* ── UNIFIED SIGNAL FEED ───────────────────────────────── */
+#unified-signal-feed{position:relative;z-index:10;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg2);max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#unified-signal-feed::-webkit-scrollbar{width:2px}
+#unified-signal-feed::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.unified-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.unified-title{font-family:var(--display);font-size:14px;letter-spacing:2px;color:var(--gold)}
+.unified-count{font-family:var(--mono);font-size:9px;color:var(--text3)}
+.signal-card{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg);margin-bottom:4px;animation:signalSlide 0.3s ease}
+@keyframes signalSlide{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+.signal-card .inst-badge{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:3px;background:var(--bg3);color:var(--text);border:1px solid var(--border)}
+.signal-card .type-badge{font-family:var(--mono);font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px}
+.type-badge.buy-ce{background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim)}
+.type-badge.buy-pe{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
+.signal-card .conf{font-family:var(--mono);font-size:10px;color:var(--gold)}
+.signal-card .strike{font-family:var(--mono);font-size:10px;color:var(--text)}
+.signal-card .prem{font-family:var(--mono);font-size:9px;color:var(--text2)}
+.signal-card .time{font-family:var(--mono);font-size:8px;color:var(--text3);margin-left:auto}
 
 /* ── CONTENT ─────────────────────────────────────────────── */
 .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative;z-index:5}
@@ -349,7 +375,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
   <div class="hdr">
     <div class="logo-wrap">
       <div class="logo">SOA TRADER</div>
-      <div class="logo-sub">SENSEX OPTION ASSISTANT</div>
+      <div class="logo-sub">MULTI-INSTRUMENT OPTION ASSISTANT</div>
     </div>
     <div class="clock-wrap">
       <div class="clock" id="clock">--:--:--</div>
@@ -357,10 +383,20 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
     </div>
   </div>
 
-  <!-- SENSEX TICKER -->
+  <!-- INSTRUMENT SELECTOR TABS -->
+  <div id="instrument-tabs">
+    <button data-inst="SENSEX" class="inst-tab active" onclick="switchInstrument('SENSEX')">SENSEX</button>
+    <button data-inst="NIFTY" class="inst-tab" onclick="switchInstrument('NIFTY')">NIFTY</button>
+    <button data-inst="BANKNIFTY" class="inst-tab" onclick="switchInstrument('BANKNIFTY')">BANKNIFTY</button>
+    <button data-inst="FINNIFTY" class="inst-tab" onclick="switchInstrument('FINNIFTY')">FINNIFTY</button>
+    <button data-inst="BANKEX" class="inst-tab" onclick="switchInstrument('BANKEX')">BANKEX</button>
+    <button data-inst="STOCKS" class="inst-tab" onclick="switchInstrument('STOCKS')">STOCKS</button>
+  </div>
+
+  <!-- TICKER BAR (per-instrument) -->
   <div class="ticker">
     <div>
-      <div class="sensex-label">BSE SENSEX</div>
+      <div class="sensex-label" id="ticker-label">BSE SENSEX</div>
       <div class="sensex-price" id="sensex-price">--,---</div>
     </div>
     <div class="sensex-meta">
@@ -376,15 +412,14 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
       <div class="ts-val" id="atm-put-ltp">--</div>
       <div class="ts-label">ATM PUT</div>
     </div>
-	<div class="ticker-stat">
-		<div class="ts-val" id="exec-ce-ltp">--</div>
-		<div class="ts-label">CE ATM+1</div>
-	</div>
-	<div class="ticker-stat">
-		<div class="ts-val" id="exec-pe-ltp">--</div>
-		<div class="ts-label">PE ATM-1</div>
-	</div>
-
+    <div class="ticker-stat">
+      <div class="ts-val" id="exec-ce-ltp">--</div>
+      <div class="ts-label">CE ATM+1</div>
+    </div>
+    <div class="ticker-stat">
+      <div class="ts-val" id="exec-pe-ltp">--</div>
+      <div class="ts-label">PE ATM-1</div>
+    </div>
     <div class="conn-dot wait" id="conn-dot" title="Connecting..."></div>
   </div>
 
@@ -396,14 +431,23 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
     <div class="sribbon-timer" id="sribbon-timer"></div>
   </div>
 
+  <!-- UNIFIED SIGNAL FEED -->
+  <div id="unified-signal-feed">
+    <div class="unified-hdr">
+      <span class="unified-title">ALL SIGNALS</span>
+      <span class="unified-count" id="unified-count">0 signals</span>
+    </div>
+    <div id="signal-list"></div>
+  </div>
+
   <!-- CONTENT -->
   <div class="content">
 
     <!-- ── DASHBOARD ── -->
     <div class="pane active" id="pane-dash">
       <div id="conn-banner-area"></div>
-	  <div id="signal-area"></div>
-	  <div id="analysis-area"></div>
+      <div id="signal-area"></div>
+      <div id="analysis-area"></div>
       <div id="inst-area"></div>
       <div id="sr-panel"></div>
       <div class="sec-hdr">
@@ -465,8 +509,8 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
   <!-- TABS -->
   <div class="tabs">
     <button class="tab active" id="tab-dash" onclick="switchTab('dash')">
-  <span class="tab-icon">🏠</span>HOME<span id="signal-badge" style="display:none;background:var(--red);color:#fff;border-radius:50%;width:14px;height:14px;font-size:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:2px;vertical-align:top" id="sig-badge"></span>
-	</button>
+      <span class="tab-icon">🏠</span>HOME<span id="signal-badge" style="display:none;background:var(--red);color:#fff;border-radius:50%;width:14px;height:14px;font-size:8px;display:inline-flex;align-items:center;justify-content:center;margin-left:2px;vertical-align:top"></span>
+    </button>
     <button class="tab" id="tab-mkt" onclick="switchTab('mkt')">
       <span class="tab-icon">📈</span>MARKET
     </button>
@@ -482,10 +526,9 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
   </div>
 
 </div>
-
 <script>
 // ═══════════════════════════════════════════════════════════
-//  SOA TRADER FRONTEND v2.0
+//  SOA TRADER FRONTEND v2.0 — Multi-Instrument
 // ═══════════════════════════════════════════════════════════
 
 // ── SESSIONS ────────────────────────────────────────────────
@@ -502,39 +545,88 @@ const SESSIONS = [
 ];
 
 const INST = {
-  earlyam:  {col:'dim',  title:'MARKET CLOSED',          body:'Review previous trade journal.\nStudy yesterday\'s price action.\nPrepare levels for today\'s session.\n<b>Market opens at 9:15 AM IST.</b>',
-    checks:['Review yesterday\'s trade log & P&L','Study ATM option price behavior','Mark key levels for today','Check for major news events','Rest and mentally prepare']},
-  premarket:{col:'gold', title:'PRE-MARKET PREP',        body:'This window is for <b>preparation only.</b>\nNo orders. Just observation and planning.\nMark your reference levels now.',
+  earlyam:  {col:'dim',  title:'MARKET CLOSED',          body:'Review previous trade journal.
+Study yesterday's price action.
+Prepare levels for today's session.
+<b>Market opens at 9:15 AM IST.</b>',
+    checks:['Review yesterday's trade log & P&L','Study ATM option price behavior','Mark key levels for today','Check for major news events','Rest and mentally prepare']},
+  premarket:{col:'gold', title:'PRE-MARKET PREP',        body:'This window is for <b>preparation only.</b>
+No orders. Just observation and planning.
+Mark your reference levels now.',
     checks:['Mark PDH & PDL on chart','Mark previous week high/low','Check Gift Nifty gap direction','Decide initial bias: Bullish / Bearish / Neutral','Note any major events today (Budget, RBI, Global)','Charts ready: 15 min + 5 min + 3 min']},
-  opening:  {col:'red',  title:'DO NOT TRADE',           body:'<b>Biggest mistake: trading this window.</b>\nWide spreads. Fake moves. Gap fills.\nJust mark the Opening Range and watch.\nLet the market reveal its direction.',
+  opening:  {col:'red',  title:'DO NOT TRADE',           body:'<b>Biggest mistake: trading this window.</b>
+Wide spreads. Fake moves. Gap fills.
+Just mark the Opening Range and watch.
+Let the market reveal its direction.',
     checks:['Mark 9:15–9:30 candle high & low (Opening Range)','Note gap direction: filling or extending?','Watch VWAP position on 15-min','No orders — hands off terminal']},
-  window1:  {col:'green',title:'WINDOW 1 — TRADE NOW',  body:'<b>Your best window of the day.</b>\nLook for Opening Range Breakout on 5-min.\nConfirm 15-min direction first.\nATM or 1-step ITM preferred.',
+  window1:  {col:'green',title:'WINDOW 1 — TRADE NOW',  body:'<b>Your best window of the day.</b>
+Look for Opening Range Breakout on 5-min.
+Confirm 15-min direction first.
+ATM or 1-step ITM preferred.',
     checks:['15-min trend confirmed (HH+HL or LL+LH)?','Price above VWAP → Calls | Below → Puts','5-min ORB breakout with volume spike?','ATM or ITM selected (not deep OTM)?','Entry premium noted in journal','Mental SL set at −₹20 on premium','Target set at +₹25 on premium','Max 2 trades today — make them count']},
-  midmorn:  {col:'blue', title:'MID-MORNING',            body:'First wave may be over.\n<b>If daily target hit → close terminal now.</b>\nOnly trade if trend is clearly continuing.\nVery selective. High confidence only.',
+  midmorn:  {col:'blue', title:'MID-MORNING',            body:'First wave may be over.
+<b>If daily target hit → close terminal now.</b>
+Only trade if trend is clearly continuing.
+Very selective. High confidence only.',
     checks:['Daily target already hit? → STOP TRADING','15-min trend still intact?','No reversal candles or VWAP rejection?','Fresh breakout on 5-min with volume?','Not chasing — pure setup only']},
-  lunch:    {col:'red',  title:'LUNCH LULL — STOP',     body:'<b>Most dangerous time for option buyers.</b>\nTheta decay is accelerating.\nVolume is low. Spreads widen.\nPremium loses value even if flat.\n\n<b>ZERO NEW POSITIONS.</b>',
-    checks:['Close profitable positions → book it','Do NOT enter any new positions','Update today\'s journal entries','Analyse morning trades objectively','Eat, rest, clear your mind']},
-  window2:  {col:'green',title:'WINDOW 2 — OPEN',       body:'Second opportunity of the day.\nFII/DII afternoon positioning creates moves.\n<b>Same rules as Window 1.</b>\nNote: theta is higher — be faster.',
+  lunch:    {col:'red',  title:'LUNCH LULL — STOP',     body:'<b>Most dangerous time for option buyers.</b>
+Theta decay is accelerating.
+Volume is low. Spreads widen.
+Premium loses value even if flat.
+
+<b>ZERO NEW POSITIONS.</b>',
+    checks:['Close profitable positions → book it','Do NOT enter any new positions','Update today's journal entries','Analyse morning trades objectively','Eat, rest, clear your mind']},
+  window2:  {col:'green',title:'WINDOW 2 — OPEN',       body:'Second opportunity of the day.
+FII/DII afternoon positioning creates moves.
+<b>Same rules as Window 1.</b>
+Note: theta is higher — be faster.',
     checks:['Fresh 15-min trend forming?','VWAP being tested as S/R?','5-min clean breakout with volume?','Slightly reduce lot size (theta risk)?','SL: −₹20 on premium — strict, no exceptions']},
-  closing:  {col:'gold', title:'CLOSING — EXIT ALL',    body:'2:30–3:30 PM is erratic and unpredictable.\nExpiry hedge unwinding causes sharp reversals.\n<b>Exit all open positions before 3 PM.</b>\nNo new entries in this window.',
-    checks:['All positions closed before 3:00 PM?','No new options bought today?','Mark today\'s close price for tomorrow','Write final P&L in journal','Did you follow the strategy? Be honest.']},
-  closed:   {col:'dim',  title:'END OF SESSION',        body:'Trading is over for today.\n<b>Discipline in review = better tomorrow.</b>\nSpend 15 minutes on honest reflection.',
-    checks:['Log every trade: entry, exit, reason','Calculate accurate daily P&L','Note any rule violations (without excuses)','Note what worked and what did not','Prepare tomorrow\'s chart levels']},
+  closing:  {col:'gold', title:'CLOSING — EXIT ALL',    body:'2:30–3:30 PM is erratic and unpredictable.
+Expiry hedge unwinding causes sharp reversals.
+<b>Exit all open positions before 3 PM.</b>
+No new entries in this window.',
+    checks:['All positions closed before 3:00 PM?','No new options bought today?','Mark today's close price for tomorrow','Write final P&L in journal','Did you follow the strategy? Be honest.']},
+  closed:   {col:'dim',  title:'END OF SESSION',        body:'Trading is over for today.
+<b>Discipline in review = better tomorrow.</b>
+Spend 15 minutes on honest reflection.',
+    checks:['Log every trade: entry, exit, reason','Calculate accurate daily P&L','Note any rule violations (without excuses)','Note what worked and what did not','Prepare tomorrow's chart levels']},
 };
 
-// ── STATE ────────────────────────────────────────────────────
+// ── MULTI-INSTRUMENT STATE ─────────────────────────────────
+let currentInstrument = 'SENSEX';
+let instrumentData = {};
+let unifiedSignals = [];
 let checks = {};
 let currentTab = 'dash';
 let wsConn = null;
-let oiWalls = null;
-let sensexBase = 0;
-let liveData = { sensex: null, atmCall: null, atmPut: null, atmStrike: null };
-let optionChain = [];
 let cfg = { trading: { defaultLots:15, defaultTarget:25, defaultStopLoss:20, defaultMonthlyGoal:35000 } };
-let connStatus = 'waiting'; // waiting | live | error
+let connStatus = 'waiting';
 let canSignal = true;
-// ── WEBSOCKET TO LOCAL SERVER ────────────────────────────────
-// ── WEBSOCKET TO LOCAL SERVER ────────────────────────────────
+let rangeData = { support: null, resistance: null };
+let analysisData = null;
+let lastSignal = null;
+let allSignals = [];
+
+function initInstrumentData(id) {
+  if (!instrumentData[id]) {
+    instrumentData[id] = {
+      price: null,
+      optionChain: [],
+      atmStrike: null,
+      atmCall: null,
+      atmPut: null,
+      analysis: null,
+      signals: [],
+      trade: null,
+      oiWalls: null,
+      sensexBase: null,
+      lastSignal: null,
+    };
+  }
+}
+['SENSEX','NIFTY','BANKNIFTY','FINNIFTY','BANKEX','STOCKS'].forEach(initInstrumentData);
+
+// ── WEBSOCKET ──────────────────────────────────────────────
 function connectWS() {
   try {
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -543,10 +635,7 @@ function connectWS() {
     wsConn.onopen = () => {
       console.log('Connected to local server');
       updateConnStatus('waiting', 'Authenticating...');
-      // full-migration bootstrap
-	  const cachedSignals = signalCache.restore();
-cachedSignals.forEach(sig => upsertSignal(sig, { silent: true }));
-try { wsConn.send(JSON.stringify({ type: 'GET_INIT_STATE' })); } catch (_) {}
+      try { wsConn.send(JSON.stringify({ type: 'GET_INIT_STATE' })); } catch (_) {}
     };
 
     wsConn.onmessage = (e) => {
@@ -570,283 +659,219 @@ try { wsConn.send(JSON.stringify({ type: 'GET_INIT_STATE' })); } catch (_) {}
 
 function handleMessage(msg) {
   switch(msg.type) {
-    // ── NEW STATE-DRIVEN PROTOCOL ───────────────────────────
     case 'INIT_STATE':
-      hydrateInitState(msg.data);
-	   updateConnStatus('live', 'Angel One Live');  // ← ADD THIS LINE
-      break;
-	case 'INIT_STATE':
-  if (msg.data) {
-    const data = msg.data;
-    if (data.config) cfg = data.config;
-    if (data.market?.lastSensex) updateSensex(data.market.lastSensex);
-    if (data.market?.optionChain) updateOptionChain(data.market.optionChain);
-    if (data.market?.snapshot) {
-      analysisData = data.market.snapshot;
-      tradeData = data.market.snapshot.trade;
-      if (data.market.snapshot.oi) window._oiWalls = data.market.snapshot.oi;
-    }
-    (data.sessionSignalHistory || []).forEach(sig => upsertSignal(sig, { silent: true }));
-    (data.todaySignalHistory || []).forEach(sig => upsertSignal(sig, { silent: true }));
-    if (currentTab === 'dash') { renderAnalysis(); renderSRPanel(); if (lastSignal) renderSignal(lastSignal); }
-    if (currentTab === 'sig') renderSignalsTab();
-  }
-  break;
-    case 'SIGNAL_CANDIDATE':
-      upsertSignal(msg.data, { candidate: true });
-      appState.pendingCandidate = msg.data;
-      appState.currentHomeSignal = msg.data;
-      renderHomeSignal();
-      if (currentTab === 'sig') renderSignalsTab();
+      if (msg.data) {
+        if (msg.data.config) cfg = msg.data.config;
+        if (msg.data.instruments) {
+          for (const [instId, snap] of Object.entries(msg.data.instruments)) {
+            initInstrumentData(instId);
+            if (snap.price) instrumentData[instId].price = snap.price;
+            if (snap.atmStrike) instrumentData[instId].atmStrike = snap.atmStrike;
+            if (snap.analysis) instrumentData[instId].analysis = snap.analysis;
+            if (snap.signals) instrumentData[instId].signals = snap.signals;
+            if (snap.trade) instrumentData[instId].trade = snap.trade;
+            if (snap.oi) instrumentData[instId].oiWalls = snap.oi;
+          }
+        }
+        updateConnStatus('live', 'Angel One Live');
+        if (currentTab === 'dash') { renderAnalysis(); renderSRPanel(); }
+        if (currentTab === 'mkt') renderMarket();
+      }
       break;
 
-    case 'SIGNAL_CONFIRMED':
-      upsertSignal(msg.data, { candidate: false });
-      appState.currentHomeSignal = msg.data;
-      appState.pendingCandidate = null;
-      handleSignalMessages({ type:'SIGNAL', data: msg.data });
+    case 'SIGNAL':
+      if (msg.data && msg.instrument) {
+        initInstrumentData(msg.instrument);
+        instrumentData[msg.instrument].lastSignal = msg.data;
+        instrumentData[msg.instrument].signals.push(msg.data);
+        addSignalToUnifiedFeed(msg.data, msg.instrument);
+        playSignalSound(msg.data.type);
+        if (msg.instrument !== currentInstrument) {
+          flashInstrumentTab(msg.instrument);
+        }
+        if (msg.instrument === currentInstrument) {
+          updateMainDashboard(msg.data);
+        }
+        if (currentTab === 'sig') renderSignalsTab();
+      }
+      break;
+
+    case 'ANALYSIS':
+      if (msg.data && msg.instrument) {
+        initInstrumentData(msg.instrument);
+        instrumentData[msg.instrument].analysis = msg.data;
+        if (msg.instrument === currentInstrument) {
+          updateAnalysisDisplay(msg.data);
+        }
+        updateBackgroundState(msg.instrument, msg.data);
+      }
       break;
 
     case 'TRADE_OPEN':
-      appState.activeTrade = msg.data;
-      tradeData = tradeData || {};
-      tradeData.activeTrade = msg.data;
-
-      if (msg.data?.signalId && appState.signalHistoryById.has(msg.data.signalId)) {
-        const sig = appState.signalHistoryById.get(msg.data.signalId);
-        sig.tradeStatus = 'OPEN';
-        appState.signalHistoryById.set(sig.id, sig);
+      if (msg.data && msg.instrument) {
+        initInstrumentData(msg.instrument);
+        instrumentData[msg.instrument].trade = msg.data;
+        if (msg.instrument === currentInstrument) {
+          renderAnalysis();
+        }
       }
-
-      if (appState.currentHomeSignal && appState.currentHomeSignal.id === msg.data.signalId) {
-        appState.currentHomeSignal.tradeStatus = 'OPEN';
-      }
-
-      renderTrade();
-      renderHomeSignal();
-      if (currentTab === 'sig') renderSignalsTab();
       break;
 
-    // ── LEGACY / EXISTING PROTOCOL (kept for compatibility) ─
-    case 'INIT':
-      if (msg.config) cfg = msg.config;
-      if (msg.authStatus === 'connected') updateConnStatus('live', 'Angel One Live');
-      syncCalcFromConfig();
-      handleSignalMessages(msg);
+    case 'TRADE_CLOSED':
+      if (msg.data && msg.instrument) {
+        initInstrumentData(msg.instrument);
+        instrumentData[msg.instrument].trade = msg.data;
+        if (msg.instrument === currentInstrument) {
+          renderAnalysis();
+          renderHomeSignal();
+        }
+        if (currentTab === 'sig') renderSignalsTab();
+      }
+      break;
+
+    case 'SETUP_ABORT':
+      console.log('Setup abort:', msg.instrument, msg.data);
+      break;
+
+    case 'SENSEX_LTP':
+      if (msg.ltp) {
+        initInstrumentData('SENSEX');
+        instrumentData['SENSEX'].price = msg.ltp;
+        if (!instrumentData['SENSEX'].sensexBase) instrumentData['SENSEX'].sensexBase = msg.ltp;
+        if (currentInstrument === 'SENSEX') {
+          updateLTPDisplay(msg.ltp);
+        }
+      }
+      break;
+
+    case 'OPTION_CHAIN':
+      if (msg.data) {
+        initInstrumentData(currentInstrument);
+        instrumentData[currentInstrument].optionChain = msg.data;
+        if (currentTab === 'mkt') renderMarket();
+      }
+      break;
+
+    case 'OI_WALLS':
+      if (msg.data) {
+        initInstrumentData(currentInstrument);
+        instrumentData[currentInstrument].oiWalls = msg.data;
+        if (currentTab === 'dash') renderSRPanel();
+      }
+      break;
+
+    case 'TRADE_STATUS':
+      canSignal = msg.canOpenNewSignal;
+      break;
+
+    case 'RANGE_UPDATE':
+      if (msg.resistance != null) rangeData.resistance = msg.resistance;
+      if (msg.support != null) rangeData.support = msg.support;
+      renderSRPanel();
       break;
 
     case 'AUTH_STATUS':
       updateConnStatus(msg.status === 'connected' ? 'live' : 'error', msg.message);
       break;
 
-    case 'TICK':
-      handleTick(msg.data);
-      break;
-
-    case 'OPTION_CHAIN':
-      if (msg.data) updateOptionChain(msg.data);
-      break;
-
-    case 'SENSEX_LTP':
-      if (msg.ltp) updateSensex(msg.ltp);
-      break;
-
     case 'WS_ERROR':
       updateConnStatus('error', msg.message);
       break;
-
-    case 'EXEC_PREMIUMS':
-      if (msg.data) updateExecPremiums(msg.data);
-      break;
-
-    case 'OI_WALLS':
-      if (msg.data) {
-        window._oiWalls = msg.data;
-        if (currentTab === 'dash') renderSRPanel();
-      }
-      break;
-
-    case 'SIGNAL':
-    case 'ANALYSIS':
-    case 'TRADE_CLOSED':
-    case 'RANGE_UPDATE':
-      handleSignalMessages(msg);
-      break;
   }
 }
-function hydrateInitState(data) {
-  if (!data) return;
 
-  if (data.config) cfg = data.config;
-  syncCalcFromConfig();
+// ── INSTRUMENT SWITCHING ───────────────────────────────────
+function switchInstrument(inst) {
+  currentInstrument = inst;
+  document.querySelectorAll('.inst-tab').forEach(t => t.classList.remove('active'));
+  const btn = document.querySelector(`.inst-tab[data-inst="${inst}"]`);
+  if (btn) btn.classList.add('active');
 
-  appState.latestSnapshot = data.market?.snapshot || null;
-  appState.activeTrade = data.activeTrade || null;
-  appState.pendingCandidate = data.pendingCandidate || null;
+  const labelMap = {
+    SENSEX: 'BSE SENSEX',
+    NIFTY: 'NSE NIFTY',
+    BANKNIFTY: 'NSE BANKNIFTY',
+    FINNIFTY: 'NSE FINNIFTY',
+    BANKEX: 'BSE BANKEX',
+    STOCKS: 'STOCK OPTIONS',
+  };
+  document.getElementById('ticker-label').textContent = labelMap[inst] || inst;
 
-  if (data.market?.lastSensex) updateSensex(data.market.lastSensex);
-  if (data.market?.optionChain) updateOptionChain(data.market.optionChain);
-
-  if (data.market?.range) {
-    rangeData = {
-      support: data.market.range.support ?? rangeData.support,
-      resistance: data.market.range.resistance ?? rangeData.resistance
-    };
+  const data = instrumentData[inst];
+  if (data) {
+    if (data.price) updateLTPDisplay(data.price);
+    if (currentTab === 'dash') {
+      renderAnalysis();
+      renderSRPanel();
+      if (data.lastSignal) renderSignal(data.lastSignal);
+    }
+    if (currentTab === 'mkt') renderMarket();
   }
+}
 
-  if (data.market?.snapshot) {
-    analysisData = data.market.snapshot;
-    tradeData = data.market.snapshot.trade || null;
-    if (data.market.snapshot.oi) window._oiWalls = data.market.snapshot.oi;
+function flashInstrumentTab(instrument) {
+  const btn = document.querySelector(`.inst-tab[data-inst="${instrument}"]`);
+  if (btn) {
+    btn.classList.add('flash');
+    setTimeout(() => btn.classList.remove('flash'), 2000);
   }
+}
 
-  const history = Array.isArray(data.todaySignalHistory) ? data.todaySignalHistory : [];
-  allSignals = [];
+function updateBackgroundState(instrument, data) {
+  initInstrumentData(instrument);
+  if (data.oi) instrumentData[instrument].oiWalls = data.oi;
+  if (data.trade) instrumentData[instrument].trade = data.trade;
+}
 
-  for (const sig of history) {
-    upsertSignal(sig, { silent: true });
-    allSignals.push(sig);
-  }
-
-  // Home card priority
-  if (appState.activeTrade?.signalId && appState.signalHistoryById.has(appState.activeTrade.signalId)) {
-    appState.currentHomeSignal = appState.signalHistoryById.get(appState.activeTrade.signalId);
-  } else if (appState.pendingCandidate) {
-    appState.currentHomeSignal = appState.pendingCandidate;
-  } else {
-    const latest = [...appState.signalHistoryById.values()]
-      .sort((a, b) => Number(b.time || 0) - Number(a.time || 0))[0] || null;
-    appState.currentHomeSignal = latest;
-  }
-
-  renderTrade();
-  renderHomeSignal();
+function updateMainDashboard(signal) {
   if (currentTab === 'dash') {
+    renderSignal(signal);
+  }
+}
+
+function updateAnalysisDisplay(data) {
+  if (currentTab === 'dash') {
+    analysisData = data;
     renderAnalysis();
     renderSRPanel();
   }
-  if (currentTab === 'sig') renderSignalsTab();
-  updateSigBadge();
 }
 
-function upsertSignal(sig, opts = {}) {
-  if (!sig || !sig.id) return;
-
-  const existing = appState.signalHistoryById.get(sig.id);
-  const merged = existing ? { ...existing, ...sig } : sig;
-  appState.signalHistoryById.set(sig.id, merged);
-
-  const localIdx = allSignals.findIndex(s => s.id === sig.id);
-  if (localIdx >= 0) {
-    allSignals[localIdx] = merged;
-  } else {
-    allSignals.unshift(merged);
-  }
-
-  if (!opts.silent) {
-    appState.renderedSignalIds.add(sig.id);
-  }
+// ── UNIFIED SIGNAL FEED ────────────────────────────────────
+function addSignalToUnifiedFeed(signal, instrument) {
+  unifiedSignals.unshift({ ...signal, instrument, receivedAt: Date.now() });
+  if (unifiedSignals.length > 50) unifiedSignals.pop();
+  renderUnifiedFeed();
+  if (navigator.vibrate) navigator.vibrate(200);
 }
 
-function renderHomeSignal() {
-  if (appState.activeTrade?.signalId && appState.signalHistoryById.has(appState.activeTrade.signalId)) {
-    appState.currentHomeSignal = appState.signalHistoryById.get(appState.activeTrade.signalId);
-  } else if (!appState.currentHomeSignal && appState.pendingCandidate) {
-    appState.currentHomeSignal = appState.pendingCandidate;
-  }
+function renderUnifiedFeed() {
+  const list = document.getElementById('signal-list');
+  const count = document.getElementById('unified-count');
+  if (!list) return;
 
-  const sig = appState.currentHomeSignal;
-  if (!sig) {
-    const el = document.getElementById('signal-area');
-    if (el) el.innerHTML = '';
+  count.textContent = `${unifiedSignals.length} signals`;
+
+  if (unifiedSignals.length === 0) {
+    list.innerHTML = '<div style="font-size:10px;color:var(--text3);font-family:var(--mono);padding:4px 0">No signals yet</div>';
     return;
   }
 
-  lastSignal = sig;
-  renderSignal(sig);
-}
-
-function renderTrade() {
-  if (currentTab === 'dash' && analysisData) {
-    renderAnalysis();
-  }
-}
-
-function handleTick(data) {
-  if (!sensexBase && data.ltp) sensexBase = data.ltp;
-  updateSensex(data.ltp);
-}
-
-function updateSensex(ltp) {
-  if (!ltp) return;
-  liveData.sensex = ltp;
-  if (!sensexBase) sensexBase = ltp;
-  const chg = ltp - sensexBase;
-  const pct = (chg / sensexBase * 100).toFixed(2);
-  const up = chg >= 0;
-
-  document.getElementById('sensex-price').textContent = ltp.toLocaleString('en-IN', {minimumFractionDigits:2});
-  const chgEl = document.getElementById('sensex-chg');
-  chgEl.textContent = `${up?'+':''}${chg.toFixed(2)}`;
-  chgEl.style.color = up ? 'var(--green)' : 'var(--red)';
-  document.getElementById('sensex-pct').textContent = `${up?'+':''}${pct}%`;
-
-  // Update ATM strike
-  liveData.atmStrike = Math.round(ltp / 100) * 100;
-}
-
-function updateOptionChain(data) {
-  optionChain = data;
-  if (currentTab === 'mkt') renderMarket();
-
-  // Update ATM premium in ticker
-  if (Array.isArray(data)) {
-    const atm = data.find(r => r.strikePrice == liveData.atmStrike);
-    if (atm) {
-      liveData.atmCall = atm.CE?.ltp;
-      liveData.atmPut  = atm.PE?.ltp;
-      const callEl = document.getElementById('atm-call-ltp');
-      const putEl  = document.getElementById('atm-put-ltp');
-      if (callEl && liveData.atmCall) { callEl.textContent = `₹${liveData.atmCall}`; callEl.style.color = 'var(--green)'; }
-      if (putEl  && liveData.atmPut)  { putEl.textContent  = `₹${liveData.atmPut}`;  putEl.style.color  = 'var(--red)'; }
-    }
-  }
-}
-function updateExecPremiums(data) {
-  // data = { ce:{strike,premium,token,expiry}, pe:{...}, atmStrike }
-
-  const ceEl = document.getElementById('exec-ce-ltp');
-  const peEl = document.getElementById('exec-pe-ltp');
-
-  const cePrem = data?.ce?.premium;
-  const pePrem = data?.pe?.premium;
-
-  if (ceEl) {
-    ceEl.textContent = (typeof cePrem === 'number') ? `₹${cePrem}` : '--';
-    ceEl.style.color = 'var(--green)';
-  }
-
-  if (peEl) {
-    peEl.textContent = (typeof pePrem === 'number') ? `₹${pePrem}` : '--';
-    peEl.style.color = 'var(--red)';
-  }
-}
-function updateConnStatus(status, msg) {
-  connStatus = status;
-  const dot = document.getElementById('conn-dot');
-  dot.className = `conn-dot ${status === 'live' ? 'live' : status === 'error' ? 'err' : 'wait'}`;
-
-  const bannerArea = document.getElementById('conn-banner-area');
-  if (currentTab === 'dash') {
-    if (status === 'live') {
-      bannerArea.innerHTML = `<div class="conn-banner live">● ANGEL ONE LIVE — ${msg}</div>`;
-      setTimeout(() => { bannerArea.innerHTML = ''; }, 3000);
-    } else if (status === 'error') {
-      bannerArea.innerHTML = `<div class="conn-banner">⚠ ${msg} — Run: node server.js</div>`;
-    } else {
-      bannerArea.innerHTML = `<div class="conn-banner waiting">◌ ${msg}</div>`;
-    }
-  }
+  list.innerHTML = unifiedSignals.slice(0, 10).map(s => {
+    const isCE = s.type === 'BUY_CE';
+    const typeClass = isCE ? 'buy-ce' : 'buy-pe';
+    const typeText = isCE ? 'BUY CE' : 'BUY PE';
+    return `
+      <div class="signal-card">
+        <span class="inst-badge">${s.instrument}</span>
+        <span class="type-badge ${typeClass}">${typeText}</span>
+        <span class="conf">${s.confidence}%</span>
+        <span class="strike">${s.strike || s.indicators?.price || ''}</span>
+        <span class="prem">${s.entryPremium ? '₹'+s.entryPremium : ''}</span>
+        <span class="time">${s.timeStr || ''}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 // ── CLOCK & SESSION ──────────────────────────────────────────
@@ -881,7 +906,6 @@ function updateClock() {
   document.getElementById('sribbon-label').textContent = sess.label;
   document.getElementById('sribbon-desc').textContent = sess.desc;
 
-  // Next window countdown
   const idx = SESSIONS.findIndex(x => x.id === sess.id);
   const next = SESSIONS[idx+1];
   if (next) {
@@ -901,12 +925,11 @@ function updateClock() {
     renderDash(sess, ist);
   }
   if (currentTab === 'dash' && sess.id === lastSessionId && s === 0) {
-    // Refresh checklist every minute
     renderDash(sess, ist);
   }
 }
 
-// ── DASHBOARD ────────────────────────────────────────────────
+// ── DASHBOARD ───────────────────────────────────────────────
 function renderDash(sess, ist) {
   const inst = INST[sess.id] || INST.closed;
   const key = sess.id;
@@ -935,7 +958,6 @@ function renderDash(sess, ist) {
         <div class="signal-sub">${sess.desc}</div></div>
       </div>` : ''}`;
 
-  // Render checklist
   const done = checks[key].filter(Boolean).length;
   const total = inst.checks.length;
   const pct = total ? Math.round(done/total*100) : 0;
@@ -960,47 +982,108 @@ function toggleCheck(key, i) {
     const pct = total ? Math.round(done/total*100) : 0;
     document.getElementById('chk-count').textContent = `${done}/${total}`;
     document.getElementById('chk-fill').style.width = pct + '%';
-    document.getElementById('chk-area').querySelector(`[onclick="toggleCheck('${key}',${i})"]`).outerHTML = `
-      <div class="chk-item" onclick="toggleCheck('${key}',${i})">
-        <div class="chk-box ${checks[key][i]?'done':''}">${checks[key][i]?'✓':''}</div>
-        <div class="chk-text ${checks[key][i]?'done':''}">${INST[key].checks[i]}</div>
-      </div>`;
-    // Re-bind
     renderDash(sess, ist);
+  }
+}
+
+// ── TICKER / LTP ────────────────────────────────────────────
+function updateLTPDisplay(ltp) {
+  const data = instrumentData[currentInstrument];
+  if (!data) return;
+  if (!data.sensexBase) data.sensexBase = ltp;
+  const chg = ltp - data.sensexBase;
+  const pct = (chg / data.sensexBase * 100).toFixed(2);
+  const up = chg >= 0;
+
+  document.getElementById('sensex-price').textContent = ltp.toLocaleString('en-IN', {minimumFractionDigits:2});
+  const chgEl = document.getElementById('sensex-chg');
+  chgEl.textContent = `${up?'+':''}${chg.toFixed(2)}`;
+  chgEl.style.color = up ? 'var(--green)' : 'var(--red)';
+  document.getElementById('sensex-pct').textContent = `${up?'+':''}${pct}%`;
+
+  data.price = ltp;
+  data.atmStrike = Math.round(ltp / 100) * 100;
+}
+
+function updateOptionChain(data) {
+  initInstrumentData(currentInstrument);
+  instrumentData[currentInstrument].optionChain = data;
+  if (currentTab === 'mkt') renderMarket();
+
+  if (Array.isArray(data)) {
+    const dataObj = instrumentData[currentInstrument];
+    const atm = data.find(r => r.strikePrice == dataObj.atmStrike);
+    if (atm) {
+      dataObj.atmCall = atm.CE?.ltp;
+      dataObj.atmPut = atm.PE?.ltp;
+      const callEl = document.getElementById('atm-call-ltp');
+      const putEl = document.getElementById('atm-put-ltp');
+      if (callEl && dataObj.atmCall) { callEl.textContent = `₹${dataObj.atmCall}`; callEl.style.color = 'var(--green)'; }
+      if (putEl && dataObj.atmPut) { putEl.textContent = `₹${dataObj.atmPut}`; putEl.style.color = 'var(--red)'; }
+    }
+  }
+}
+
+function updateExecPremiums(data) {
+  const ceEl = document.getElementById('exec-ce-ltp');
+  const peEl = document.getElementById('exec-pe-ltp');
+  const cePrem = data?.ce?.premium;
+  const pePrem = data?.pe?.premium;
+  if (ceEl) { ceEl.textContent = (typeof cePrem === 'number') ? `₹${cePrem}` : '--'; ceEl.style.color = 'var(--green)'; }
+  if (peEl) { peEl.textContent = (typeof pePrem === 'number') ? `₹${pePrem}` : '--'; peEl.style.color = 'var(--red)'; }
+}
+
+function updateConnStatus(status, msg) {
+  connStatus = status;
+  const dot = document.getElementById('conn-dot');
+  dot.className = `conn-dot ${status === 'live' ? 'live' : status === 'error' ? 'err' : 'wait'}`;
+
+  const bannerArea = document.getElementById('conn-banner-area');
+  if (currentTab === 'dash') {
+    if (status === 'live') {
+      bannerArea.innerHTML = `<div class="conn-banner live">● ANGEL ONE LIVE — ${msg}</div>`;
+      setTimeout(() => { bannerArea.innerHTML = ''; }, 3000);
+    } else if (status === 'error') {
+      bannerArea.innerHTML = `<div class="conn-banner">⚠ ${msg} — Run: node server.js</div>`;
+    } else {
+      bannerArea.innerHTML = `<div class="conn-banner waiting">◌ ${msg}</div>`;
+    }
   }
 }
 
 // ── MARKET ───────────────────────────────────────────────────
 function renderMarket() {
+  const data = instrumentData[currentInstrument];
   const target = cfg.trading?.defaultTarget || 25;
-  const sl     = cfg.trading?.defaultStopLoss || 20;
-  const atm    = liveData.atmStrike || '--';
-  const ist    = getIST();
-  const sess   = getSession(ist);
-  const isLive = !!liveData.sensex;
+  const sl = cfg.trading?.defaultStopLoss || 20;
+  const atm = data?.atmStrike || '--';
+  const ist = getIST();
+  const sess = getSession(ist);
+  const isLive = !!data?.price;
+  const chain = data?.optionChain || [];
 
   let chainHTML = '';
-  if (optionChain.length > 0 && liveData.atmStrike) {
-    const atmIdx = optionChain.findIndex(r => r.strikePrice >= liveData.atmStrike);
-    const start  = Math.max(0, atmIdx - 3);
-    const end    = Math.min(optionChain.length, atmIdx + 4);
-    const slice  = optionChain.slice(start, end);
+  if (chain.length > 0 && data?.atmStrike) {
+    const atmIdx = chain.findIndex(r => r.strikePrice >= data.atmStrike);
+    const start = Math.max(0, atmIdx - 3);
+    const end = Math.min(chain.length, atmIdx + 4);
+    const slice = chain.slice(start, end);
 
     chainHTML = `
-      <div class="sec-hdr"><div class="sec-title">OPTION CHAIN</div><div class="sec-line"></div><div class="sec-tag">WEEKLY EXPIRY</div></div>
+      <div class="sec-hdr"><div class="sec-title">OPTION CHAIN</div><div class="sec-line"></div><div class="sec-tag">${currentInstrument}</div></div>
       <div class="chain-wrap">
         <div class="chain-hdr"><span>CALL ₹ / TGT / SL</span><span>STRIKE</span><span>PUT ₹ / TGT / SL</span></div>
         ${slice.map(r => {
-          const isAtm = r.strikePrice == liveData.atmStrike;
-          const isItm = r.strikePrice < liveData.atmStrike;
-          const type  = isAtm ? 'ATM' : isItm ? 'ITM' : 'OTM';
-          const cls   = isAtm ? 'sb-atm' : isItm ? 'sb-itm' : 'sb-otm';
-          const cp    = r.CE?.ltp || '--';
-          const pp    = r.PE?.ltp || '--';
-          const ct    = cp !== '--' ? `₹${(+cp+target).toFixed(0)}` : '--';
-          const csl   = cp !== '--' ? `₹${(+cp-sl).toFixed(0)}` : '--';
-          const pt    = pp !== '--' ? `₹${(+pp+target).toFixed(0)}` : '--';
-          const psl   = pp !== '--' ? `₹${(+pp-sl).toFixed(0)}` : '--';
+          const isAtm = r.strikePrice == data.atmStrike;
+          const isItm = r.strikePrice < data.atmStrike;
+          const type = isAtm ? 'ATM' : isItm ? 'ITM' : 'OTM';
+          const cls = isAtm ? 'sb-atm' : isItm ? 'sb-itm' : 'sb-otm';
+          const cp = r.CE?.ltp || '--';
+          const pp = r.PE?.ltp || '--';
+          const ct = cp !== '--' ? `₹${(+cp+target).toFixed(0)}` : '--';
+          const csl = cp !== '--' ? `₹${(+cp-sl).toFixed(0)}` : '--';
+          const pt = pp !== '--' ? `₹${(+pp+target).toFixed(0)}` : '--';
+          const psl = pp !== '--' ? `₹${(+pp-sl).toFixed(0)}` : '--';
           return `<div class="chain-row ${isAtm?'atm':''}">
             <div class="call-side">
               <div class="chain-prem c">${typeof cp === 'number' ? cp.toFixed(2) : cp}</div>
@@ -1021,15 +1104,15 @@ function renderMarket() {
     chainHTML = `<div class="alert gold">⏳ ${isLive ? 'Loading option chain...' : 'Waiting for Angel One connection. Run: node server.js'}</div>`;
   }
 
-  const atmCallLive = liveData.atmCall;
-  const atmPutLive  = liveData.atmPut;
+  const atmCallLive = data?.atmCall;
+  const atmPutLive = data?.atmPut;
 
   document.getElementById('mkt-area').innerHTML = `
     <div class="stat-grid">
       <div class="stat-box">
         <div class="stat-lbl">ATM STRIKE</div>
-        <div class="stat-val" style="color:var(--gold)">${atm.toLocaleString?.('en-IN') || atm}</div>
-        <div class="stat-sub">Weekly Expiry</div>
+        <div class="stat-val" style="color:var(--gold)">${typeof atm === 'number' ? atm.toLocaleString('en-IN') : atm}</div>
+        <div class="stat-sub">${currentInstrument}</div>
       </div>
       <div class="stat-box">
         <div class="stat-lbl">SESSION</div>
@@ -1054,7 +1137,7 @@ function renderMarket() {
     <div class="divider"></div>
     ${chainHTML}
     <div style="font-size:9px;color:var(--text3);text-align:center;margin-top:8px;font-family:var(--mono)">
-      LIVE DATA VIA ANGEL ONE SMARTAPI • ${connStatus === 'live' ? '● STREAMING' : '○ OFFLINE'}
+      LIVE DATA VIA ANGEL ONE SMARTAPI • ${connStatus === 'live' ? '● STREAMING' : '○ OFFLINE'} • ${currentInstrument}
     </div>`;
 }
 
@@ -1063,34 +1146,34 @@ function syncCalcFromConfig() {
   const t = cfg.trading;
   if (!t) return;
   if (document.getElementById('c-target')) document.getElementById('c-target').value = t.defaultMonthlyGoal || 35000;
-  if (document.getElementById('c-move'))   document.getElementById('c-move').value   = t.defaultTarget     || 25;
+  if (document.getElementById('c-move')) document.getElementById('c-move').value = t.defaultTarget || 25;
   calcResults();
 }
 
 function calcResults() {
   const target = +document.getElementById('c-target').value || 35000;
-  const move   = +document.getElementById('c-move').value   || 25;
-  const type   = document.getElementById('c-type').value;
-  const dWk    = +document.getElementById('c-days').value   || 3;
-  const tDay   = +document.getElementById('c-trades').value || 2;
-  const wr     = (+document.getElementById('c-wr').value    || 60) / 100;
-  const prem   = {itm:550, atm:380, otm:220}[type];
-  const lotSz  = 10;
+  const move = +document.getElementById('c-move').value || 25;
+  const type = document.getElementById('c-type').value;
+  const dWk = +document.getElementById('c-days').value || 3;
+  const tDay = +document.getElementById('c-trades').value || 2;
+  const wr = (+document.getElementById('c-wr').value || 60) / 100;
+  const prem = {itm:550, atm:380, otm:220}[type];
+  const lotSz = 10;
   const tradDays = dWk===3?12:dWk===4?16:20;
   const profitPerLot = move * lotSz;
-  const lossPerLot   = Math.round(move * 0.8) * lotSz;
-  const monthlyCost  = 7500;
-  const grossNeeded  = target + monthlyCost;
+  const lossPerLot = Math.round(move * 0.8) * lotSz;
+  const monthlyCost = 7500;
+  const grossNeeded = target + monthlyCost;
   const perDayNeeded = Math.round(grossNeeded / tradDays);
-  const effPerDay    = (profitPerLot * wr) - (lossPerLot * (1-wr));
-  const lotsRaw      = grossNeeded / (effPerDay * tradDays);
-  const lots         = Math.max(8, Math.ceil(lotsRaw));
-  const active       = lots * prem;
-  const buffer       = Math.round(active * 0.35);
-  const total        = active + buffer;
-  const sensexPts    = Math.round(move / (type==='itm'?0.65:type==='atm'?0.50:0.35));
-  const rrRatio      = (move / (move*0.8)).toFixed(2);
-  const minWinRate   = Math.round(1/(1+parseFloat(rrRatio))*100);
+  const effPerDay = (profitPerLot * wr) - (lossPerLot * (1-wr));
+  const lotsRaw = grossNeeded / (effPerDay * tradDays);
+  const lots = Math.max(8, Math.ceil(lotsRaw));
+  const active = lots * prem;
+  const buffer = Math.round(active * 0.35);
+  const total = active + buffer;
+  const sensexPts = Math.round(move / (type==='itm'?0.65:type==='atm'?0.50:0.35));
+  const rrRatio = (move / (move*0.8)).toFixed(2);
+  const minWinRate = Math.round(1/(1+parseFloat(rrRatio))*100);
 
   document.getElementById('calc-out').innerHTML = `
     <div class="res-block">
@@ -1212,488 +1295,38 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('pane-'+name).classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
-  if (name === 'calc')  calcResults();
+  if (name === 'calc') calcResults();
   if (name === 'strat') renderStrategy();
-  if (name === 'mkt')   renderMarket();
-  if (name === 'sig')   renderSignalsTab();
-  if (name === 'dash') { lastSessionId = null; updateClock(); renderAnalysis(); if (lastSignal) renderSignal(lastSignal); renderSRPanel(); }
+  if (name === 'mkt') renderMarket();
+  if (name === 'sig') renderSignalsTab();
+  if (name === 'dash') { lastSessionId = null; updateClock(); renderAnalysis(); renderSRPanel(); }
 }
 
-// ── INIT ─────────────────────────────────────────────────────
-['c-target','c-move','c-type','c-days','c-trades','c-wr'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('input', calcResults);
-});
-
-updateClock();
-setInterval(updateClock, 1000);
-setInterval(() => { if (currentTab === 'mkt' && wsConn?.readyState === WebSocket.OPEN) wsConn.send(JSON.stringify({type:'GET_OPTION_CHAIN'})); }, 3000);
-setInterval(() => { if (currentTab === 'mkt') renderMarket(); }, 2000);
-
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-connectWS();
-// ── SIGNAL / APP STATE ───────────────────────────────────────
-const appState = {
-  renderedSignalIds: new Set(),
-  signalHistoryById: new Map(),
-  activeTrade: null,
-  currentHomeSignal: null,
-  pendingCandidate: null,
-  latestSnapshot: null
-};
-
-let lastSignal    = null;
-let analysisData  = null;
-let tradeData     = null;
-let allSignals    = [];
-let rangeData     = { support: null, resistance: null };
-
-const signalCache = {
-  key: 'soa_signals',
-  timeKey: 'soa_cache_time',
-  store: () => {
-    try { localStorage.setItem(signalCache.key, JSON.stringify(allSignals || [])); localStorage.setItem(signalCache.timeKey, String(Date.now())); } catch (_) {}
-  },
-  restore: () => {
-    try {
-      const cached = localStorage.getItem(signalCache.key);
-      const cacheTime = Number(localStorage.getItem(signalCache.timeKey) || 0);
-      if (!cached || !cacheTime) return [];
-      if (Date.now() - cacheTime > 3 * 60 * 60 * 1000) return [];
-      const parsed = JSON.parse(cached);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (_) { return []; }
-  }
-};
-function upsertSignal(sig, opts = {}) {
-  if (!sig || !sig.id) return;
-  const idx = allSignals.findIndex(s => s.id === sig.id);
-  if (idx >= 0) allSignals[idx] = { ...allSignals[idx], ...sig };
-  else allSignals.unshift(sig);
-  signalCache.store();
-  if (!opts.silent && !sig.nearMiss) lastSignal = sig;
-  signalCount = allSignals.filter(s => !s.nearMiss).length;
-  updateSigBadge();
-}
-
-
-// ── AUDIO ALERT ──────────────────────────────────────────────
-function playSignalSound(type) {
-  try {
-    const ctx  = new (window.AudioContext || window.webkitAudioContext)();
-    const freqs = type === 'BUY_CE'
-      ? [523, 659, 784]
-      : [784, 659, 523];
-    freqs.forEach((freq, i) => {
-      const osc  = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.15);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
-      osc.start(ctx.currentTime + i * 0.15);
-      osc.stop(ctx.currentTime + i * 0.15 + 0.35);
-    });
-  } catch(e) {}
-}
-function syncSignalOutcomes(serverSigs) {
-  let changed = false;
-
-  serverSigs.forEach(ss => {
-    const local = allSignals.find(s => s.id === ss.id);
-
-    if (local && ss.tradeStatus) {
-      local.tradeStatus = ss.tradeStatus;
-      local.pnl = ss.pnl;
-      local.exitPremium = ss.exitPremium;
-      local.exitReason = ss.exitReason;
-
-      appState.signalHistoryById.set(local.id, local);
-
-      if (appState.currentHomeSignal && appState.currentHomeSignal.id === local.id) {
-        appState.currentHomeSignal = local;
-      }
-
-      if (lastSignal && lastSignal.id === local.id) {
-        lastSignal = local;
-      }
-
-      changed = true;
-    }
-  });
-
-  // Phase 1: persist synced outcomes to localStorage
-  if (changed) signalCache.store();
-}
-
-
-// ── HANDLE SIGNAL MESSAGES ────────────────────────────────────
-function handleSignalMessages(msg) {
-  switch (msg.type) {
-    case 'SIGNAL':
-    case 'SIGNAL_CANDIDATE':
-    case 'SIGNAL_CONFIRMED': {
-      const sig = msg.data;
-      if (!sig) break;
-
-      lastSignal = sig;
-      appState.currentHomeSignal = sig;
-
-      // Phase 1: centralized insert/update + localStorage cache
-      upsertSignal(sig);
-
-      if (!sig.nearMiss) {
-        playSignalSound(sig.type);
-        renderHomeSignal();
-        if (currentTab !== 'dash') switchTab('dash');
-      }
-
-      // Optional: if upsertSignal() already calls updateSigBadge(), this is harmless.
-      updateSigBadge();
-
-      if (currentTab === 'sig') renderSignalsTab();
-      break;
-    }
-	
-	
-	case 'TRADE_STATUS':
-	canSignal = msg.canOpenNewSignal;
-	break;
-
-    case 'ANALYSIS':
-      analysisData = msg.data;
-      tradeData    = msg.data.trade;
-      appState.latestSnapshot = msg.data;
-
-      if (msg.data.signals?.signals) syncSignalOutcomes(msg.data.signals.signals);
-      if (msg.data.oi) window._oiWalls = msg.data.oi;
-
-      if (currentTab === 'dash') {
-        renderAnalysis();
-        renderSRPanel();
-      }
-
-      if (currentTab === 'sig') renderSignalsTab();
-      break;
-
-    case 'TRADE_CLOSED':
-      appState.activeTrade = null;
-      tradeData = msg.data;
-
-      if (msg.data?.signalId && appState.signalHistoryById.has(msg.data.signalId)) {
-        const sig = appState.signalHistoryById.get(msg.data.signalId);
-
-        sig.tradeStatus = msg.data.status;
-        sig.pnl = msg.data.pnl;
-        sig.exitPremium = msg.data.exitPremium;
-        sig.exitReason = msg.data.reason;
-
-        appState.signalHistoryById.set(sig.id, sig);
-
-        const idx = allSignals.findIndex(x => x.id === sig.id);
-        if (idx >= 0) allSignals[idx] = sig;
-
-        if (appState.currentHomeSignal && appState.currentHomeSignal.id === sig.id) {
-          appState.currentHomeSignal = sig;
-        }
-      }
-
-      if (lastSignal && msg.data?.signalId && lastSignal.id === msg.data.signalId) {
-        lastSignal.tradeStatus = msg.data.status;
-        lastSignal.pnl = msg.data.pnl;
-        lastSignal.exitPremium = msg.data.exitPremium;
-        lastSignal.exitReason = msg.data.reason;
-      }
-
-      // Phase 1: persist updated trade outcome to localStorage
-      signalCache.store();
-
-      if (currentTab === 'dash') {
-        renderAnalysis();
-        renderHomeSignal();
-      }
-
-      if (currentTab === 'sig') renderSignalsTab();
-      break;
-
-    case 'RANGE_UPDATE':
-      if (msg.resistance != null) rangeData.resistance = msg.resistance;
-      if (msg.support != null) rangeData.support = msg.support;
-      renderSRPanel();
-      break;
-
-    case 'INIT_STATE': {
-      const data = msg.data || {};
-      const snap = data.market?.snapshot || null;
-
-      const todayHistory = Array.isArray(data.todaySignalHistory)
-        ? data.todaySignalHistory
-        : [];
-
-      const sessionHistory = Array.isArray(data.sessionSignalHistory)
-        ? data.sessionSignalHistory
-        : [];
-
-      const history = todayHistory.length ? todayHistory : sessionHistory;
-
-      if (snap) {
-        analysisData = snap;
-        tradeData = snap.trade;
-        appState.latestSnapshot = snap;
-        if (snap.oi) window._oiWalls = snap.oi;
-      }
-
-      if (history.length) {
-        allSignals = [...history].reverse();
-
-        appState.signalHistoryById.clear();
-        allSignals.forEach(sig => appState.signalHistoryById.set(sig.id, sig));
-
-        // Phase 1: persist restored history to localStorage
-        signalCache.store();
-
-        updateSigBadge();
-      }
-
-      if (currentTab === 'dash') {
-        renderAnalysis();
-        renderSRPanel();
-      }
-
-      if (currentTab === 'sig') renderSignalsTab();
-      break;
-    }
-
-    case 'INIT':
-      if (msg.snapshot) {
-        analysisData = msg.snapshot;
-        tradeData    = msg.snapshot.trade;
-        appState.latestSnapshot = msg.snapshot;
-        if (msg.snapshot.oi) window._oiWalls = msg.snapshot.oi;
-      }
-
-      if (Array.isArray(msg.pastSignals) && msg.pastSignals.length) {
-        allSignals = [...msg.pastSignals].reverse();
-
-        appState.signalHistoryById.clear();
-        allSignals.forEach(sig => appState.signalHistoryById.set(sig.id, sig));
-
-        // Phase 1: persist restored legacy INIT history to localStorage
-        signalCache.store();
-
-        updateSigBadge();
-      }
-
-      if (currentTab === 'dash') {
-        renderAnalysis();
-        renderSRPanel();
-      }
-
-      if (currentTab === 'sig') renderSignalsTab();
-      break;
-  }
-}
-function renderSRPanel() {
-  const el = document.getElementById('sr-panel');
-  if (!el) return;
-
-  const s = rangeData.support;
-  const r = rangeData.resistance;
-
-  const pack = window._oiWalls || {};
-  const existing = pack.existingSR || {};
-  const buildup = pack.buildupSR || {};
-  const nextLv = pack.nextLevels || {};
-
-  if (!s && !r && !existing.supportNearest && !existing.resistanceNearest) {
-    el.innerHTML = '';
-    return;
-  }
-
-  const atm = liveData.atmStrike;
-  const dist = (val) => {
-    if (!val || !atm) return '';
-    const d = val - atm;
-    return `<span style="color:var(--text3);font-size:10px;margin-left:6px">${d > 0 ? '+' : ''}${d}</span>`;
-  };
-
-  const fmtDelta = (d) => {
-    if (typeof d !== 'number') return '--';
-    const up = d >= 0;
-    return `<span style="color:${up ? 'var(--green)' : 'var(--red)'};font-family:var(--mono);font-size:10px">${up ? '+' : ''}${Math.round(d)}</span>`;
-  };
-
-  const pickVal = (primary, fallback1, fallback2) => {
-    const v = primary ?? fallback1 ?? fallback2;
-    return (v === null || typeof v === 'undefined') ? null : v;
-  };
-
-  const showS = pickVal(s, existing.supportNearest, existing.supportMaxOI);
-  const showR = pickVal(r, existing.resistanceNearest, existing.resistanceMaxOI);
-
-  el.innerHTML = `
-    <div class="sec-hdr">
-      <div class="sec-title">SUPPORT / RESISTANCE</div>
-      <div class="sec-line"></div>
-      <div class="sec-tag">${buildup.window ? `ROLL ${buildup.window}` : ''}</div>
-    </div>
-
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <div style="flex:1;background:var(--bg2);border:1px solid rgba(0,200,100,0.25);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">EXISTING SUPPORT</div>
-        <div style="font-family:var(--display);font-size:22px;color:var(--green)">${showS ? showS.toLocaleString('en-IN') : '--'}${dist(showS)}</div>
-        <div style="font-size:9px;color:var(--text3);margin-top:4px;font-family:var(--mono)">
-          MaxOI: ${existing.supportMaxOI ? existing.supportMaxOI.toLocaleString('en-IN') : '--'}
-          • Nearest: ${existing.supportNearest ? existing.supportNearest.toLocaleString('en-IN') : '--'}
-        </div>
-      </div>
-
-      <div style="flex:1;background:var(--bg2);border:1px solid rgba(220,50,50,0.25);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">EXISTING RESISTANCE</div>
-        <div style="font-family:var(--display);font-size:22px;color:var(--red)">${showR ? showR.toLocaleString('en-IN') : '--'}${dist(showR)}</div>
-        <div style="font-size:9px;color:var(--text3);margin-top:4px;font-family:var(--mono)">
-          MaxOI: ${existing.resistanceMaxOI ? existing.resistanceMaxOI.toLocaleString('en-IN') : '--'}
-          • Nearest: ${existing.resistanceNearest ? existing.resistanceNearest.toLocaleString('en-IN') : '--'}
-        </div>
-      </div>
-    </div>
-
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px;margin-bottom:10px">
-      <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:6px">BUILDUP (ROLLING ΔOI)</div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;margin-bottom:6px">
-        <span>Support Build: <b>${buildup.supportBuild?.strike ?? '--'}</b> ${fmtDelta(buildup.supportBuild?.delta)}</span>
-        <span>Resistance Build: <b>${buildup.resistanceBuild?.strike ?? '--'}</b> ${fmtDelta(buildup.resistanceBuild?.delta)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px">
-        <span>Support Weak: <b>${buildup.supportWeak?.strike ?? '--'}</b> ${fmtDelta(buildup.supportWeak?.delta)}</span>
-        <span>Resistance Weak: <b>${buildup.resistanceWeak?.strike ?? '--'}</b> ${fmtDelta(buildup.resistanceWeak?.delta)}</span>
-      </div>
-      ${(pack.isPinned ? `<div style="margin-top:6px;font-size:10px;font-family:var(--mono);color:var(--gold)">PIN DETECTED @ ${existing.supportMaxOI ?? '--'}</div>` : '')}
-    </div>
-
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <div style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">NEXT SUPPORT</div>
-        <div style="font-family:var(--display);font-size:18px;color:var(--gold)">${nextLv.nextSupport ? nextLv.nextSupport.toLocaleString('en-IN') : '--'}</div>
-      </div>
-      <div style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">NEXT RESISTANCE</div>
-        <div style="font-family:var(--display);font-size:18px;color:var(--gold)">${nextLv.nextResistance ? nextLv.nextResistance.toLocaleString('en-IN') : '--'}</div>
-      </div>
-    </div>
-  `;
-}
+// ── SIGNALS TAB ─────────────────────────────────────────────
 function updateSigBadge() {
   const badge = document.getElementById('sig-count-badge');
   if (!badge) return;
-  const fired = allSignals.filter(s => !s.nearMiss).length;
-  const near  = allSignals.filter(s => s.nearMiss).length;
-  const total = fired + near;
+  const data = instrumentData[currentInstrument];
+  const total = (data?.signals || []).length;
   if (total > 0) {
     badge.textContent = total;
     badge.style.display = 'inline-block';
   }
 }
 
-// ── RENDER SIGNAL CARD (dashboard flash) ─────────────────────
-function renderSignal(sig) {
-	
-// ✅ ADD HERE
-  if (!canSignal && appState.activeTrade) {
-    document.getElementById('signal-area').innerHTML = `
-      <div class="signal no">
-        🔒 TRADE IN PROGRESS
-      </div>
-    `;
-    return;
-  }
-
-  const signalStage = sig.signalStage || (sig.nearMiss ? 'CANDIDATE' : 'CONFIRMED');
-  const isCE = sig.type === 'BUY_CE';
-  const posFactors = sig.factors.filter(f => f.score > 0);
-  const negFactors = sig.factors.filter(f => f.score < 0);
-  const confClass  = sig.confidence >= 85 ? 'strong' : sig.confidence >= 70 ? 'moderate' : 'weak';
-
-  // Dynamic status badge
-  let statusBadge = '';
-  let outcomeRow  = '';
-  if (sig.tradeStatus === 'WIN') {
-    statusBadge = `<span style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">✓ TARGET HIT</span>`;
-    outcomeRow  = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-      <span style="color:var(--text3)">Exit Premium</span>
-      <span style="font-family:var(--mono);color:var(--green)">₹${sig.exitPremium?.toFixed(2) || '--'}</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:bold">
-      <span style="color:var(--text2)">P&L (${sig.lots || 15} lots)</span>
-      <span style="font-family:var(--mono);color:var(--green)">+₹${sig.pnl || '--'}</span>
-    </div>`;
-  } else if (sig.tradeStatus === 'LOSS') {
-    statusBadge = `<span style="background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">✗ SL HIT</span>`;
-    outcomeRow  = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-      <span style="color:var(--text3)">Exit Premium</span>
-      <span style="font-family:var(--mono);color:var(--red)">₹${sig.exitPremium?.toFixed(2) || '--'}</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:bold">
-      <span style="color:var(--text2)">P&L (${sig.lots || 15} lots)</span>
-      <span style="font-family:var(--mono);color:var(--red)">₹${sig.pnl || '--'}</span>
-    </div>`;
-  } else {
-    statusBadge = `<span style="background:var(--gold-bg);color:var(--gold);border:1px solid var(--gold-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">● OPEN</span>`;
-    outcomeRow  = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-      <span style="color:var(--text3)">Target</span>
-      <span style="font-family:var(--mono);color:var(--green)">₹${sig.target || '--'}</span>
-      <span style="color:var(--text3)">SL</span>
-      <span style="font-family:var(--mono);color:var(--red)">₹${sig.sl || '--'}</span>
-    </div>`;
-  }
-
-  document.getElementById('signal-area').innerHTML = `
-    <div class="signal-alert ${isCE ? 'ce' : 'pe'}">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-		<div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:4px">
-          ${signalStage}
-      	</div>
-        <div class="signal-type ${isCE ? 'ce' : 'pe'}" style="margin-bottom:0">${isCE ? '▲ BUY CALL' : '▼ BUY PUT'} ${sig.strike || ''}</div>
-        ${statusBadge}
-      </div>
-      <div class="signal-conf">
-        Confidence: <b>${sig.confidence}%</b> — <b>${sig.strength}</b>
-        <div class="conf-bar"><div class="conf-fill ${confClass}" style="width:${sig.confidence}%"></div></div>
-      </div>
-      <div class="signal-factors">
-        ${posFactors.map(f => `<span class="factor-tag factor-pos">+${f.score} ${f.name}</span>`).join('')}
-        ${negFactors.map(f => `<span class="factor-tag factor-neg">${f.score} ${f.name}</span>`).join('')}
-      </div>
-      ${outcomeRow}
-      ${typeof sig.currentPremium === 'number' ? `
-      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-        <span style="color:var(--text3)">Current Premium</span>
-        <span style="font-family:var(--mono);color:var(--gold)">₹${sig.currentPremium.toFixed(2)}</span>
-      </div>` : ''}
-      <div class="signal-meta" style="margin-top:8px">
-        <span>Signal #${sig.signalNum} of 5</span>
-        <span>@ ${sig.timeStr}</span>
-        <span>Sensex: ${sig.price?.toLocaleString('en-IN')}</span>
-      </div>
-    </div>`;
-}
-
-// ── RENDER SIGNALS TAB ────────────────────────────────────────
 function renderSignalsTab() {
-  renderSigSummary();
-  renderSigLog();
-}
+  const data = instrumentData[currentInstrument];
+  const signals = data?.signals || [];
+  const trade = data?.trade;
 
-function renderSigSummary() {
   const bar = document.getElementById('sig-summary-bar');
-  if (!bar) return;
-  const fired  = allSignals.filter(s => !s.nearMiss);
-  const near   = allSignals.filter(s =>  s.nearMiss);
-  const wins   = fired.filter(s => s.tradeStatus === 'WIN').length;
+  const log = document.getElementById('sig-log');
+
+  const fired = signals.filter(s => !s.nearMiss);
+  const near = signals.filter(s => s.nearMiss);
+  const wins = fired.filter(s => s.tradeStatus === 'WIN').length;
   const losses = fired.filter(s => s.tradeStatus === 'LOSS').length;
-  const dailyPnL = (tradeData?.dailyPnL || 0);
+  const dailyPnL = trade?.dailyPnL || 0;
 
   bar.innerHTML = `
     <div class="sig-summary-chip gold">
@@ -1712,56 +1345,39 @@ function renderSigSummary() {
       <span class="chip-val">₹${dailyPnL >= 0 ? '+' : ''}${dailyPnL}</span>
       <span class="chip-lbl">DAILY P&L</span>
     </div>`;
-}
 
-function renderSigLog() {
-  const log = document.getElementById('sig-log');
-  if (!log) return;
-
-  if (allSignals.length === 0) {
+  if (signals.length === 0) {
     log.innerHTML = '<div class="sig-empty">No signals yet today.<br>Signals fire at 70+ confidence (9:30–2:30).<br>Near-misses shown at 60–69.</div>';
     return;
   }
 
-  log.innerHTML = allSignals.map((sig, idx) => buildSigCard(sig, idx)).join('');
+  log.innerHTML = signals.slice().reverse().map((sig, idx) => buildSigCard(sig, idx)).join('');
 }
 
 function buildSigCard(sig, idx) {
-  const isCE   = sig.type === 'BUY_CE';
+  const isCE = sig.type === 'BUY_CE';
   const isNear = sig.nearMiss;
-  const cls    = isNear ? 'sigcard-near' : isCE ? 'sigcard-ce' : 'sigcard-pe';
-
-  const typeLabel = isNear
-    ? (isCE ? '~ BUY CALL' : '~ BUY PUT')
-    : (isCE ? '▲ BUY CALL' : '▼ BUY PUT');
+  const cls = isNear ? 'sigcard-near' : isCE ? 'sigcard-ce' : 'sigcard-pe';
+  const typeLabel = isNear ? (isCE ? '~ BUY CALL' : '~ BUY PUT') : (isCE ? '▲ BUY CALL' : '▼ BUY PUT');
   const typeColor = isNear ? 'near' : isCE ? 'ce' : 'pe';
 
-  // Outcome
   let outHtml = '';
-  if (isNear) {
-    outHtml = '<span class="sigcard-outcome outcome-near">NEAR MISS</span>';
-  } else if (!sig.tradeStatus || sig.tradeStatus === 'NO_TRADE') {
-    outHtml = '<span class="sigcard-outcome outcome-notrade">NO TRADE</span>';
-  } else if (sig.tradeStatus === 'OPEN') {
-    outHtml = '<span class="sigcard-outcome outcome-open">OPEN ●</span>';
-  } else if (sig.tradeStatus === 'WIN') {
-    outHtml = `<span class="sigcard-outcome outcome-win">WIN ₹${sig.pnl >= 0 ? '+' : ''}${sig.pnl || ''}</span>`;
-  } else if (sig.tradeStatus === 'LOSS') {
-    outHtml = `<span class="sigcard-outcome outcome-loss">LOSS ₹${sig.pnl || ''}</span>`;
-  }
+  if (isNear) outHtml = '<span class="sigcard-outcome outcome-near">NEAR MISS</span>';
+  else if (!sig.tradeStatus || sig.tradeStatus === 'NO_TRADE') outHtml = '<span class="sigcard-outcome outcome-notrade">NO TRADE</span>';
+  else if (sig.tradeStatus === 'OPEN') outHtml = '<span class="sigcard-outcome outcome-open">OPEN ●</span>';
+  else if (sig.tradeStatus === 'WIN') outHtml = `<span class="sigcard-outcome outcome-win">WIN ₹${sig.pnl >= 0 ? '+' : ''}${sig.pnl || ''}</span>`;
+  else if (sig.tradeStatus === 'LOSS') outHtml = `<span class="sigcard-outcome outcome-loss">LOSS ₹${sig.pnl || ''}</span>`;
 
   const confClass = sig.confidence >= 85 ? 'strong' : sig.confidence >= 70 ? 'moderate' : 'weak';
   const confColor = sig.confidence >= 85 ? 'var(--green)' : sig.confidence >= 70 ? 'var(--amber)' : 'var(--red)';
 
-  // Grid cells
   const entryPrem = sig.entryPremium ? `₹${sig.entryPremium}` : '—';
-  const target    = sig.target       ? `₹${sig.target}`       : '—';
-  const sl        = sig.sl           ? `₹${sig.sl}`           : '—';
-  const sensex    = sig.price        ? sig.price.toLocaleString('en-IN') : '—';
-  const vwap      = sig.vwap         ? sig.vwap.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—';
-  const ema5      = sig.ema5         ? sig.ema5.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—';
+  const target = sig.target ? `₹${sig.target}` : '—';
+  const sl = sig.sl ? `₹${sig.sl}` : '—';
+  const sensex = sig.price ? sig.price.toLocaleString('en-IN') : '—';
+  const vwap = sig.vwap ? sig.vwap.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—';
+  const ema5 = sig.ema5 ? sig.ema5.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—';
 
-  // Factors
   const posF = (sig.factors || []).filter(f => f.score > 0);
   const negF = (sig.factors || []).filter(f => f.score < 0);
   const factorHtml = [...posF, ...negF].map(f =>
@@ -1779,7 +1395,7 @@ function buildSigCard(sig, idx) {
       </div>
       <div class="sigcard-time">
         <div>#${sig.signalNum || '—'} · ${sig.timeStr || ''}</div>
-        <div style="margin-top:3px;color:var(--text2)">Sensex ${sensex}</div>
+        <div style="margin-top:3px;color:var(--text2)">${sig.instrument || currentInstrument} ${sensex}</div>
       </div>
     </div>
 
@@ -1829,7 +1445,7 @@ function buildSigCard(sig, idx) {
 }
 
 function toggleFactors(uid, btn) {
-  const body  = document.getElementById(uid);
+  const body = document.getElementById(uid);
   const arrow = document.getElementById(uid + '-arrow');
   if (!body) return;
   const open = !body.classList.contains('collapsed');
@@ -1837,10 +1453,13 @@ function toggleFactors(uid, btn) {
   if (arrow) arrow.textContent = open ? '▶' : '▼';
 }
 
-// ── RENDER ANALYSIS PANEL ─────────────────────────────────────
+// ── ANALYSIS PANEL ──────────────────────────────────────────
 function renderAnalysis() {
-  if (!analysisData) return;
-  const { indicators: ind, state, trade, signals } = analysisData;
+  const data = instrumentData[currentInstrument];
+  const analysis = data?.analysis;
+  if (!analysis) return;
+
+  const { indicators: ind, state, trade, signals } = analysis;
   if (!ind) return;
 
   const stateColors = {
@@ -1855,11 +1474,11 @@ function renderAnalysis() {
   };
 
   const stateClass = stateColors[state?.state] || 'sp-side';
-  const stateIco   = stateEmoji[state?.state]  || '?';
+  const stateIco = stateEmoji[state?.state] || '?';
 
   document.getElementById('analysis-area').innerHTML = `
     <div class="sec-hdr"><div class="sec-title">LIVE ANALYSIS</div><div class="sec-line"></div>
-      <div class="sec-tag">Signals: ${signals?.totalToday || 0}/5</div>
+      <div class="sec-tag">${currentInstrument} • Signals: ${signals?.totalToday || 0}/5</div>
     </div>
 
     <div class="state-pill ${stateClass}">
@@ -1919,13 +1538,230 @@ function renderAnalysis() {
     </div>` : ''}`;
 }
 
-// Fallback — keep dashboard in sync
+// ── SIGNAL RENDER (dashboard flash) ───────────────────────────
+function renderSignal(sig) {
+  if (!canSignal && instrumentData[currentInstrument]?.trade?.activeTrade) {
+    document.getElementById('signal-area').innerHTML = `
+      <div class="signal no">
+        🔒 TRADE IN PROGRESS
+      </div>
+    `;
+    return;
+  }
+
+  const signalStage = sig.signalStage || (sig.nearMiss ? 'CANDIDATE' : 'CONFIRMED');
+  const isCE = sig.type === 'BUY_CE';
+  const posFactors = (sig.factors || []).filter(f => f.score > 0);
+  const negFactors = (sig.factors || []).filter(f => f.score < 0);
+  const confClass = sig.confidence >= 85 ? 'strong' : sig.confidence >= 70 ? 'moderate' : 'weak';
+
+  let statusBadge = '';
+  let outcomeRow = '';
+  if (sig.tradeStatus === 'WIN') {
+    statusBadge = `<span style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">✓ TARGET HIT</span>`;
+    outcomeRow = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
+      <span style="color:var(--text3)">Exit Premium</span>
+      <span style="font-family:var(--mono);color:var(--green)">₹${sig.exitPremium?.toFixed(2) || '--'}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:bold">
+      <span style="color:var(--text2)">P&L (${sig.lots || 15} lots)</span>
+      <span style="font-family:var(--mono);color:var(--green)">+₹${sig.pnl || '--'}</span>
+    </div>`;
+  } else if (sig.tradeStatus === 'LOSS') {
+    statusBadge = `<span style="background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">✗ SL HIT</span>`;
+    outcomeRow = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
+      <span style="color:var(--text3)">Exit Premium</span>
+      <span style="font-family:var(--mono);color:var(--red)">₹${sig.exitPremium?.toFixed(2) || '--'}</span>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:bold">
+      <span style="color:var(--text2)">P&L (${sig.lots || 15} lots)</span>
+      <span style="font-family:var(--mono);color:var(--red)">₹${sig.pnl || '--'}</span>
+    </div>`;
+  } else {
+    statusBadge = `<span style="background:var(--gold-bg);color:var(--gold);border:1px solid var(--gold-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">● OPEN</span>`;
+    outcomeRow = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
+      <span style="color:var(--text3)">Target</span>
+      <span style="font-family:var(--mono);color:var(--green)">₹${sig.target || '--'}</span>
+      <span style="color:var(--text3)">SL</span>
+      <span style="font-family:var(--mono);color:var(--red)">₹${sig.sl || '--'}</span>
+    </div>`;
+  }
+
+  document.getElementById('signal-area').innerHTML = `
+    <div class="signal-alert ${isCE ? 'ce' : 'pe'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:4px">
+          ${signalStage} • ${currentInstrument}
+        </div>
+        <div class="signal-type ${isCE ? 'ce' : 'pe'}" style="margin-bottom:0">${isCE ? '▲ BUY CALL' : '▼ BUY PUT'} ${sig.strike || ''}</div>
+        ${statusBadge}
+      </div>
+      <div class="signal-conf">
+        Confidence: <b>${sig.confidence}%</b> — <b>${sig.strength}</b>
+        <div class="conf-bar"><div class="conf-fill ${confClass}" style="width:${sig.confidence}%"></div></div>
+      </div>
+      <div class="signal-factors">
+        ${posFactors.map(f => `<span class="factor-tag factor-pos">+${f.score} ${f.name}</span>`).join('')}
+        ${negFactors.map(f => `<span class="factor-tag factor-neg">${f.score} ${f.name}</span>`).join('')}
+      </div>
+      ${outcomeRow}
+      ${typeof sig.currentPremium === 'number' ? `
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
+        <span style="color:var(--text3)">Current Premium</span>
+        <span style="font-family:var(--mono);color:var(--gold)">₹${sig.currentPremium.toFixed(2)}</span>
+      </div>` : ''}
+      <div class="signal-meta" style="margin-top:8px">
+        <span>Signal #${sig.signalNum} of 5</span>
+        <span>@ ${sig.timeStr}</span>
+        <span>${currentInstrument}: ${sig.price?.toLocaleString('en-IN')}</span>
+      </div>
+    </div>`;
+}
+
+function renderHomeSignal() {
+  const data = instrumentData[currentInstrument];
+  if (data?.lastSignal) {
+    renderSignal(data.lastSignal);
+  } else {
+    document.getElementById('signal-area').innerHTML = '';
+  }
+}
+
+// ── SR PANEL ────────────────────────────────────────────────
+function renderSRPanel() {
+  const el = document.getElementById('sr-panel');
+  if (!el) return;
+
+  const data = instrumentData[currentInstrument];
+  const pack = data?.oiWalls || {};
+  const existing = pack.existingSR || {};
+  const buildup = pack.buildupSR || {};
+  const nextLv = pack.nextLevels || {};
+
+  const s = rangeData.support;
+  const r = rangeData.resistance;
+
+  if (!s && !r && !existing.supportNearest && !existing.resistanceNearest) {
+    el.innerHTML = '';
+    return;
+  }
+
+  const atm = data?.atmStrike;
+  const dist = (val) => {
+    if (!val || !atm) return '';
+    const d = val - atm;
+    return `<span style="color:var(--text3);font-size:10px;margin-left:6px">${d > 0 ? '+' : ''}${d}</span>`;
+  };
+
+  const fmtDelta = (d) => {
+    if (typeof d !== 'number') return '--';
+    const up = d >= 0;
+    return `<span style="color:${up ? 'var(--green)' : 'var(--red)'};font-family:var(--mono);font-size:10px">${up ? '+' : ''}${Math.round(d)}</span>`;
+  };
+
+  const pickVal = (primary, fallback1, fallback2) => {
+    const v = primary ?? fallback1 ?? fallback2;
+    return (v === null || typeof v === 'undefined') ? null : v;
+  };
+
+  const showS = pickVal(s, existing.supportNearest, existing.supportMaxOI);
+  const showR = pickVal(r, existing.resistanceNearest, existing.resistanceMaxOI);
+
+  el.innerHTML = `
+    <div class="sec-hdr">
+      <div class="sec-title">SUPPORT / RESISTANCE</div>
+      <div class="sec-line"></div>
+      <div class="sec-tag">${currentInstrument}</div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:1;background:var(--bg2);border:1px solid rgba(0,200,100,0.25);border-radius:var(--rx);padding:10px 14px">
+        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">EXISTING SUPPORT</div>
+        <div style="font-family:var(--display);font-size:22px;color:var(--green)">${showS ? showS.toLocaleString('en-IN') : '--'}${dist(showS)}</div>
+        <div style="font-size:9px;color:var(--text3);margin-top:4px;font-family:var(--mono)">
+          MaxOI: ${existing.supportMaxOI ? existing.supportMaxOI.toLocaleString('en-IN') : '--'}
+          • Nearest: ${existing.supportNearest ? existing.supportNearest.toLocaleString('en-IN') : '--'}
+        </div>
+      </div>
+
+      <div style="flex:1;background:var(--bg2);border:1px solid rgba(220,50,50,0.25);border-radius:var(--rx);padding:10px 14px">
+        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">EXISTING RESISTANCE</div>
+        <div style="font-family:var(--display);font-size:22px;color:var(--red)">${showR ? showR.toLocaleString('en-IN') : '--'}${dist(showR)}</div>
+        <div style="font-size:9px;color:var(--text3);margin-top:4px;font-family:var(--mono)">
+          MaxOI: ${existing.resistanceMaxOI ? existing.resistanceMaxOI.toLocaleString('en-IN') : '--'}
+          • Nearest: ${existing.resistanceNearest ? existing.resistanceNearest.toLocaleString('en-IN') : '--'}
+        </div>
+      </div>
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px;margin-bottom:10px">
+      <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:6px">BUILDUP (ROLLING ΔOI)</div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;margin-bottom:6px">
+        <span>Support Build: <b>${buildup.supportBuild?.strike ?? '--'}</b> ${fmtDelta(buildup.supportBuild?.delta)}</span>
+        <span>Resistance Build: <b>${buildup.resistanceBuild?.strike ?? '--'}</b> ${fmtDelta(buildup.resistanceBuild?.delta)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px">
+        <span>Support Weak: <b>${buildup.supportWeak?.strike ?? '--'}</b> ${fmtDelta(buildup.supportWeak?.delta)}</span>
+        <span>Resistance Weak: <b>${buildup.resistanceWeak?.strike ?? '--'}</b> ${fmtDelta(buildup.resistanceWeak?.delta)}</span>
+      </div>
+      ${(pack.isPinned ? `<div style="margin-top:6px;font-size:10px;font-family:var(--mono);color:var(--gold)">PIN DETECTED @ ${existing.supportMaxOI ?? '--'}</div>` : '')}
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <div style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px">
+        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">NEXT SUPPORT</div>
+        <div style="font-family:var(--display);font-size:18px;color:var(--gold)">${nextLv.nextSupport ? nextLv.nextSupport.toLocaleString('en-IN') : '--'}</div>
+      </div>
+      <div style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px">
+        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">NEXT RESISTANCE</div>
+        <div style="font-family:var(--display);font-size:18px;color:var(--gold)">${nextLv.nextResistance ? nextLv.nextResistance.toLocaleString('en-IN') : '--'}</div>
+      </div>
+    </div>
+  `;
+}
+
+// ── AUDIO ALERT ──────────────────────────────────────────────
+function playSignalSound(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const freqs = type === 'BUY_CE' ? [523, 659, 784] : [784, 659, 523];
+    freqs.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.35);
+    });
+  } catch(e) {}
+}
+
+// ── INIT ─────────────────────────────────────────────────────
+['c-target','c-move','c-type','c-days','c-trades','c-wr'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', calcResults);
+});
+
+updateClock();
+setInterval(updateClock, 1000);
+setInterval(() => { if (currentTab === 'mkt' && wsConn?.readyState === WebSocket.OPEN) wsConn.send(JSON.stringify({type:'GET_OPTION_CHAIN'})); }, 3000);
+setInterval(() => { if (currentTab === 'mkt') renderMarket(); }, 2000);
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+connectWS();
+
 setInterval(() => {
-  if (currentTab === 'dash' && analysisData) renderAnalysis();
-  if (currentTab === 'dash' && appState.currentHomeSignal) renderHomeSignal();
+  if (currentTab === 'dash') {
+    const data = instrumentData[currentInstrument];
+    if (data?.analysis) renderAnalysis();
+    if (data?.lastSignal) renderHomeSignal();
+  }
   if (currentTab === 'sig') renderSignalsTab();
 }, 5000);
-
 </script>
 </body>
 </html>

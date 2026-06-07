@@ -1,35 +1,46 @@
 // ============================================================
-// ORCHESTRATOR (LEGACY — SINGLE-INSTRUMENT MODE)
-// Still works for backward compatibility
+// INSTRUMENT ENGINE
+// Per-instrument signal engine — fully independent, no shared state
 // ============================================================
 
-const candleBuilder = require('./candleBuilder');
-const { MarketStateEngine, STATES } = require('./marketStateEngine');
-const oiEngine = require('./oiEngine');
-const signalEngine = require('./signalEngine');
-const tradeManager = require('./tradeManager');
-const dataFreshness = require('./dataFreshness');
-const greeks = require('./greeksCalculator');
-const calibrator = require('./signalCalibrator');
-const earlyEntry = require('./earlyEntryDetector');
-const abortEngine = require('./abortEngine');
-const regimeDetector = require('./regimeDetector');
-const { calculateIndicators } = require('./indicators');
-const logger = require('../logger');
+const { CandleBuilder } = require('../candleBuilder');
+const { calculateIndicators } = require('../indicators');
+const { VWAPCalculator } = require('../indicators');
+const { MarketStateEngineClass, STATES } = require('../marketStateEngine');
+const { OIEngine } = require('../oiEngine');
+const { SignalEngine } = require('../signalEngine');
+const { TradeManager } = require('../tradeManager');
+const { AbortEngine } = require('../abortEngine');
+const DataFreshness = require('../dataFreshness');
+const GreeksCalculator = require('../greeksCalculator');
+const SignalCalibrator = require('../signalCalibrator');
+const { EarlyEntryDetector } = require('../earlyEntryDetector');
+const RegimeDetector = require('../regimeDetector');
+const { createExpiryCalculator } = require('../utils/expiryCalculator');
+const logger = require('../../logger');
 
-class Orchestrator {
-  constructor() {
-    this.marketState = MarketStateEngine;
-    this.oiEngine = oiEngine;
-    this.signalEngine = signalEngine;
-    this.tradeManager = tradeManager;
-    this.dataFreshness = dataFreshness;
-    this.greeks = greeks;
-    this.calibrator = calibrator;
-    this.earlyEntry = earlyEntry;
-    this.abortEngine = abortEngine;
-    this.regimeDetector = regimeDetector;
+class InstrumentEngine {
+  constructor(instrumentId, profile, brokerConfig) {
+    this.id = instrumentId;
+    this.profile = profile;
+    this.brokerConfig = brokerConfig;
 
+    // Fresh instances — NO shared state with other instruments
+    this.expiryCalc = createExpiryCalculator(profile);
+    this.candleBuilder = new CandleBuilder();
+    this.vwap = new VWAPCalculator();
+    this.marketState = new MarketStateEngineClass();
+    this.oiEngine = new OIEngine();
+    this.signalEngine = new SignalEngine();
+    this.tradeManager = new TradeManager();
+    this.abortEngine = new AbortEngine();
+    this.dataFreshness = new DataFreshness();
+    this.greeks = new GreeksCalculator();
+    this.calibrator = new SignalCalibrator();
+    this.earlyEntry = new EarlyEntryDetector();
+    this.regimeDetector = new RegimeDetector();
+
+    // State tracking
     this.lastIndicators = null;
     this.lastState = null;
     this.lastOI = null;
@@ -44,26 +55,35 @@ class Orchestrator {
     this._atm = null;
     this._lastResetDate = null;
 
+    // Callbacks (set by parent MultiOrchestrator)
     this.onSignal = null;
     this.onTradeOpen = null;
     this.onTradeClose = null;
     this.onUpdate = null;
     this.onSetupAbort = null;
+
+    // Override signal engine limits from profile
+    this.signalEngine.maxSignals = profile.maxSignalsDay || 5;
+    this.signalEngine.maxTrades = profile.maxTradesDay || 3;
+    this.signalEngine.cooldownMs = profile.cooldownMs || 300000;
+
+    logger.info(`InstrumentEngine initialized: ${instrumentId} (${profile.name})`);
   }
 
   onTick(ltp, timestamp) {
     this._checkDayReset();
-    candleBuilder.tick(ltp, timestamp);
+    this.candleBuilder.tick(ltp, timestamp);
 
-    const candles5m = candleBuilder.getCandles(5, 50);
-    const candles15m = candleBuilder.getCandles(15, 50);
-    const candles3m = candleBuilder.getCandles(3, 50);
+    const candles5m = this.candleBuilder.getCandles(5, 50);
+    const candles15m = this.candleBuilder.getCandles(15, 50);
+    const candles3m = this.candleBuilder.getCandles(3, 50);
 
     if (candles5m.length < 3) return;
 
     const indicators = calculateIndicators(candles5m, candles15m, candles3m, ltp);
     this.lastIndicators = indicators;
     this.lastPrice = ltp;
+    if (indicators.atr) this.lastATR = indicators.atr;
 
     const state = this.marketState.update(indicators, candles5m);
     this.lastState = state;
@@ -118,16 +138,20 @@ class Orchestrator {
       regime,
       price: ltp,
       timestamp,
+      profile: this.profile,
     });
 
     if (signal) {
-      if (this.onSignal) this.onSignal(signal);
+      if (this.onSignal) this.onSignal(this.id, signal);
 
-      const premium = signal.type === 'BUY_CE' ? (this._exec?.ce?.premium || 0) : (this._exec?.pe?.premium || 0);
+      const premium = signal.type === 'BUY_CE'
+        ? (this._exec?.ce?.premium || 0)
+        : (this._exec?.pe?.premium || 0);
+
       if (premium > 0) {
-        const trade = this.tradeManager.openTrade(signal, premium, 15, null);
+        const trade = this.tradeManager.openTrade(signal, premium, this.profile.lotSize, this.profile);
         if (trade && this.onTradeOpen) {
-          this.onTradeOpen(trade);
+          this.onTradeOpen(this.id, trade);
         }
       }
     }
@@ -144,12 +168,12 @@ class Orchestrator {
     });
 
     if (abort && this.onSetupAbort) {
-      this.onSetupAbort(abort);
+      this.onSetupAbort(this.id, abort);
     }
 
-    // Update
+    // Update broadcast
     if (this.onUpdate) {
-      this.onUpdate({
+      this.onUpdate(this.id, {
         indicators,
         state,
         oi: oiAnalysis,
@@ -158,6 +182,7 @@ class Orchestrator {
         signals: this.signalEngine.getSignals(),
         price: ltp,
         timestamp,
+        atmStrike: this._exec?.atmStrike || null,
       });
     }
   }
@@ -167,7 +192,7 @@ class Orchestrator {
 
     const result = this.tradeManager.updateTrade(this._lastOptPremium, ltp);
     if (result && !result.updated && this.onTradeClose) {
-      this.onTradeClose(result);
+      this.onTradeClose(this.id, result);
     }
   }
 
@@ -176,7 +201,7 @@ class Orchestrator {
     const today = now.toDateString();
     if (this._lastResetDate !== today) {
       this._lastResetDate = today;
-      candleBuilder.reset();
+      this.candleBuilder.reset();
       this.marketState.reset();
       this.oiEngine.reset();
       this.signalEngine.reset();
@@ -199,23 +224,25 @@ class Orchestrator {
       this._lastOptPremiumTs = 0;
       this._exec = { ce: null, pe: null };
       this._atm = null;
-      console.log('🔄 Orchestrator reset for new day');
+      logger.info(`InstrumentEngine reset for new day: ${this.id}`);
     }
   }
 
   getSnapshot() {
     return {
+      id: this.id,
+      name: this.profile.name,
+      price: this.lastPrice,
       indicators: this.lastIndicators,
       state: this.lastState,
       oi: this.lastOI,
       regime: this.lastRegime,
       trade: this.tradeManager.getStats(),
       signals: this.signalEngine.getSignals(),
-      price: this.lastPrice,
+      atmStrike: this._exec?.atmStrike || null,
       timestamp: Date.now(),
     };
   }
 }
 
-module.exports = new Orchestrator();
-module.exports.Orchestrator = Orchestrator;
+module.exports = { InstrumentEngine };

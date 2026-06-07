@@ -12,7 +12,7 @@ class OIEngine {
     this.history = [];
     this.current = null;
     this.maxHistory = 30;
-	this._lastPrice = null;
+    this._lastPrice = null;
     this._lastPriceTs = 0;
   }
 
@@ -98,10 +98,7 @@ class OIEngine {
     const xs = Array.from(new Set((strikes || []).map(Number).filter(Number.isFinite))).sort((a,b)=>a-b);
     if (xs.length < 2) return 100;
     const diffs = [];
-    for (let i=1;i<xs.length;i++) {
-      const d = xs[i]-xs[i-1];
-      if (d>0) diffs.push(d);
-    }
+    for (let i=1;i<xs.length;i++) { const d=xs[i]-xs[i-1]; if (d>0) diffs.push(d); }
     diffs.sort((a,b)=>a-b);
     return diffs[0] || 100;
   }
@@ -131,11 +128,10 @@ class OIEngine {
     const clusters = [];
     let cur = [xs[0]];
     for (let i=1;i<xs.length;i++) {
-      if (Math.abs(xs[i].strike - xs[i-1].strike) <= step) cur.push(xs[i]);
+      if (xs[i].strike - xs[i-1].strike <= step * 1.5) { cur.push(xs[i]); }
       else { clusters.push(cur); cur = [xs[i]]; }
     }
     clusters.push(cur);
-
     return clusters.map(c => {
       const strikes = c.map(x=>x.strike).sort((a,b)=>a-b);
       const center = strikes[Math.floor(strikes.length/2)];
@@ -266,8 +262,7 @@ class OIEngine {
 
     const px = Number(price);
     const change = this.getOIChange();
-	
-    // ---------------- PHASE 1: PCR trend, OI velocity, flow flags ----------------
+
     const prevSnap = this.history.length >= 2 ? this.history[this.history.length - 2].data : null;
     const prevPCR = prevSnap?.pcr ?? null;
     const curPCR = this.current.pcr ?? null;
@@ -283,7 +278,6 @@ class OIEngine {
       else if (pcrDelta < -0.02) pcrTrend = 'FALLING';
     }
 
-    // OI velocity (ΔOI per minute) using snapshot timestamps
     let oiVelocity = null;
     if (this.history.length >= 2 && change) {
       const prevEntry = this.history[this.history.length - 2];
@@ -297,7 +291,6 @@ class OIEngine {
       };
     }
 
-    // Price delta (best-effort) for buildup classification
     const prevPrice = (typeof this._lastPrice === 'number') ? this._lastPrice : null;
     const priceDelta = (prevPrice != null && Number.isFinite(px)) ? (px - prevPrice) : 0;
     if (Number.isFinite(px)) {
@@ -305,14 +298,12 @@ class OIEngine {
       this._lastPriceTs = Date.now();
     }
 
-    // Flow flags from total OI deltas + price direction
     const ceD = change?.ceDelta ?? 0;
     const peD = change?.peDelta ?? 0;
-    // Threshold for "↓↓" (big unwinding) — conservative and scales with total OI
     const ceAbsThresh = Math.max(1000, Math.round((this.current.totalCEoi ?? 0) * 0.003));
     const peAbsThresh = Math.max(1000, Math.round((this.current.totalPEoi ?? 0) * 0.003));
     const flowFlags = {
-      longBuildup:  (priceDelta > 0) && (peD > 0) && (ceD < 0),
+      longBuildup: (priceDelta > 0) && (peD > 0) && (ceD < 0),
       shortBuildup: (priceDelta < 0) && (ceD > 0) && (peD < 0),
       shortCovering: (ceD < 0) && (Math.abs(ceD) >= ceAbsThresh),
       longUnwinding: (peD < 0) && (Math.abs(peD) >= peAbsThresh),
@@ -338,16 +329,12 @@ class OIEngine {
     const rollingWindow = cfg?.oi?.rollingWindow ?? 5;
     const minOiPct = cfg?.oi?.minOiPct ?? 0.05;
     const roll = this._rollingDeltas(rollingWindow);
-	
-    // ---------------- PHASE 3: Wall pressure (weakening/strengthening) ----------------
-    // Rolling deltas (roll.ce / roll.pe) are summed across the nearest wall's strike cluster.
-    // If the sum crosses a conservative threshold, we classify the wall as weakening/strengthening.
+
     const _sum = (m, ks) => (ks || []).reduce((acc, k) => acc + (Number(m?.[k]) || 0), 0);
 
     const resistanceDelta = resistanceWall ? _sum(roll.ce, resistanceWall.strikes) : 0;
     const supportDelta = supportWall ? _sum(roll.pe, supportWall.strikes) : 0;
 
-    // Threshold logic: max(500, 0.10% of wall OI)
     const resThr = resistanceWall ? Math.max(500, Math.round((Number(resistanceWall.oi) || 0) * 0.001)) : 0;
     const supThr = supportWall ? Math.max(500, Math.round((Number(supportWall.oi) || 0) * 0.001)) : 0;
 
@@ -360,6 +347,7 @@ class OIEngine {
       supportStrengthening: supportWall ? (supportDelta >= supThr) : false,
       thresholds: { resistance: resThr, support: supThr },
     };
+
     const strikeInfo = {};
     let maxCE = 0, maxPE = 0;
     for (const s of (this.current.strikes || [])) {
@@ -407,7 +395,8 @@ class OIEngine {
       nextResistance: resistanceWall ? this._nextWallCenter(this.current.walls?.ceWalls, resistanceWall.center, 'up') : null,
       nextSupport: supportWall ? this._nextWallCenter(this.current.walls?.peWalls, supportWall.center, 'down') : null,
     };
-	const totalCEoi = Number(this.current.totalCEoi || 0);
+
+    const totalCEoi = Number(this.current.totalCEoi || 0);
     const totalPEoi = Number(this.current.totalPEoi || 0);
     const totalOI = totalCEoi + totalPEoi;
 
@@ -437,8 +426,6 @@ class OIEngine {
       buildupSR,
       nextLevels,
       wallPressure,
-
-      // ---------------- PHASE 1 additions ----------------
       pcrDelta,
       pcrTrend,
       oiVelocity,
@@ -446,8 +433,6 @@ class OIEngine {
       priceDelta,
       ceBuyConfirmed: !nearPin && (this.current.pcrBias === 'BULLISH' || this.current.pcrBias === 'SLIGHT_BULLISH'),
       peBuyConfirmed: !nearPin && (this.current.pcrBias === 'BEARISH' || this.current.pcrBias === 'SLIGHT_BEARISH'),
-
-      // ---------------- PHASE 2C additions ----------------
       imbalanceScore,
       imbalanceBias,
       imbalance: {
@@ -461,3 +446,4 @@ class OIEngine {
 }
 
 module.exports = new OIEngine();
+module.exports.OIEngine = OIEngine;
