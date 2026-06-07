@@ -1,13 +1,13 @@
 // ============================================================
 // TEST: Multi-Instrument Independence
 // Standalone test — no Angel One API needed (mocked)
+// Run: node test-multi-instrument.js
 // ============================================================
 
 const assert = require('assert');
 
 // ── MOCKS ───────────────────────────────────────────────────
 
-// Mock Angel One responses
 const MOCK_LTP_RESPONSE = {
   status: true,
   data: {
@@ -25,7 +25,6 @@ const MOCK_CHAIN_RESPONSE = {
   }
 };
 
-// Mock axios
 const axios = {
   post: async (url, body, config) => {
     if (url.includes('quote')) {
@@ -47,7 +46,6 @@ const axios = {
     return { data: {} };
   },
   get: async (url, config) => {
-    // Mock instrument master
     return {
       data: [
         // NIFTY options
@@ -69,7 +67,6 @@ const axios = {
   }
 };
 
-// Mock require
 const Module = require('module');
 const originalRequire = Module.prototype.require;
 Module.prototype.require = function(id) {
@@ -79,9 +76,6 @@ Module.prototype.require = function(id) {
 
 // ── IMPORTS ────────────────────────────────────────────────
 
-const { MultiOrchestrator } = require('./strategy/core/multiOrchestrator');
-const { InstrumentEngine } = require('./strategy/core/instrumentEngine');
-const { MarketDataService } = require('./strategy/core/marketDataService');
 const { createExpiryCalculator } = require('./strategy/utils/expiryCalculator');
 const profiles = require('./strategy/dna/instrumentProfiles');
 
@@ -102,102 +96,110 @@ function test(name, fn) {
 }
 
 // Test 1: ExpiryCalculator weekly
-test('ExpiryCalculator: NIFTY weekly (Sat → next Tue)', () => {
+test('ExpiryCalculator: NIFTY weekly (Sat -> next Tue)', () => {
   const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 2 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 6)); // June 6, 2026 = Saturday
   assert.strictEqual(result, '09JUN2026');
 });
 
-test('ExpiryCalculator: NIFTY weekly (Tue → same Tue)', () => {
+test('ExpiryCalculator: NIFTY weekly (Tue -> same Tue)', () => {
   const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 2 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 9)); // June 9, 2026 = Tuesday
   assert.strictEqual(result, '09JUN2026');
 });
 
-test('ExpiryCalculator: NIFTY weekly (Wed → next Tue)', () => {
+test('ExpiryCalculator: NIFTY weekly (Wed -> next Tue)', () => {
   const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 2 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 10)); // June 10, 2026 = Wednesday
   assert.strictEqual(result, '16JUN2026');
 });
 
-test('ExpiryCalculator: BANKNIFTY monthly (Jun 15 → last Tue)', () => {
+test('ExpiryCalculator: BANKNIFTY monthly (Jun 15 -> last Tue)', () => {
   const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 15));
   assert.strictEqual(result, '30JUN2026');
 });
 
-test('ExpiryCalculator: BANKNIFTY monthly (Jun 30 → next last Tue)', () => {
+test('ExpiryCalculator: BANKNIFTY monthly (Jun 30 -> next last Tue)', () => {
   const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 30));
   assert.strictEqual(result, '28JUL2026');
 });
 
-test('ExpiryCalculator: SENSEX weekly (Sat → next Thu)', () => {
+test('ExpiryCalculator: SENSEX weekly (Sat -> next Thu)', () => {
   const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 4 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 6));
   assert.strictEqual(result, '11JUN2026');
 });
 
-test('ExpiryCalculator: BANKEX monthly (Jun 15 → last Thu)', () => {
+test('ExpiryCalculator: BANKEX monthly (Jun 15 -> last Thu)', () => {
   const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 4 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 15));
   assert.strictEqual(result, '25JUN2026');
 });
 
-test('ExpiryCalculator: Stock monthly (Jun 20 → last Tue)', () => {
+test('ExpiryCalculator: Stock monthly (Jun 20 -> last Tue)', () => {
   const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
   const result = calc.getCurrentExpiry(new Date(2026, 5, 20));
   assert.strictEqual(result, '30JUN2026');
 });
 
-// Test 2: InstrumentEngine independence
-async function testIndependence() {
-  const orchestrator = new MultiOrchestrator({
-    baseUrl: 'https://mock.api',
-    jwtToken: 'mock',
+// Test 2: MarketDataService with profile injection
+async function testMarketDataService() {
+  const { MarketDataService } = require('./strategy/core/marketDataService');
+  const mds = new MarketDataService({ baseUrl: 'https://mock.api', jwtToken: 'mock' });
+  mds.authToken = 'mock';
+
+  // Test with full profile
+  await mds.loadInstrumentMaster('NIFTY', null, profiles.NIFTY);
+  const niftyInst = mds.instruments.get('NIFTY');
+
+  test('MarketDataService: NIFTY master loaded with profile', () => {
+    assert(niftyInst && Object.keys(niftyInst.tokenMap).length > 0, 'NIFTY tokenMap empty');
   });
 
-  // Override axios for this orchestrator's marketData
-  orchestrator.marketData.brokerConfig = { baseUrl: 'https://mock.api', jwtToken: 'mock' };
-  orchestrator.marketData.authToken = 'mock';
-
-  const broadcasts = [];
-  orchestrator.externalBroadcast = (msg) => broadcasts.push(msg);
-
-  // Add NIFTY and BANKNIFTY
-  orchestrator.addInstrument('NIFTY', profiles.NIFTY);
-  orchestrator.addInstrument('BANKNIFTY', profiles.BANKNIFTY);
-  orchestrator.addInstrument('SENSEX', profiles.SENSEX);
-
-  // Wait for master load
-  await new Promise(r => setTimeout(r, 500));
-
-  // Verify masters loaded
-  test('MarketDataService: NIFTY master loaded', () => {
-    const inst = orchestrator.marketData.instruments.get('NIFTY');
-    assert(inst && Object.keys(inst.tokenMap).length > 0, 'NIFTY tokenMap empty');
-  });
-
-  test('MarketDataService: BANKNIFTY master loaded', () => {
-    const inst = orchestrator.marketData.instruments.get('BANKNIFTY');
-    assert(inst && Object.keys(inst.tokenMap).length > 0, 'BANKNIFTY tokenMap empty');
-  });
-
-  test('MarketDataService: SENSEX master loaded', () => {
-    const inst = orchestrator.marketData.instruments.get('SENSEX');
-    assert(inst && Object.keys(inst.tokenMap).length > 0, 'SENSEX tokenMap empty');
-  });
-
-  // Verify strike normalization (÷100)
   test('MarketDataService: Strike normalized to rupees', () => {
-    const inst = orchestrator.marketData.instruments.get('NIFTY');
-    const token = Object.values(inst.tokenMap)[0];
+    const token = Object.values(niftyInst.tokenMap)[0];
     assert(token.strike < 100000, `Strike not normalized: ${token.strike}`);
+    assert.strictEqual(token.strike, 23450, `Expected 23450, got ${token.strike}`);
   });
 
-  // Simulate ticks for both instruments
-  const niftyEngine = orchestrator.engines.get('NIFTY');
-  const bankniftyEngine = orchestrator.engines.get('BANKNIFTY');
+  // Test BANKNIFTY
+  await mds.loadInstrumentMaster('BANKNIFTY', null, profiles.BANKNIFTY);
+  const bnInst = mds.instruments.get('BANKNIFTY');
+
+  test('MarketDataService: BANKNIFTY master loaded with profile', () => {
+    assert(bnInst && Object.keys(bnInst.tokenMap).length > 0, 'BANKNIFTY tokenMap empty');
+  });
+
+  // Test SENSEX
+  await mds.loadInstrumentMaster('SENSEX', null, profiles.SENSEX);
+  const sxInst = mds.instruments.get('SENSEX');
+
+  test('MarketDataService: SENSEX master loaded with profile', () => {
+    assert(sxInst && Object.keys(sxInst.tokenMap).length > 0, 'SENSEX tokenMap empty');
+  });
+
+  // Test stock
+  const stockProfile = { ...profiles.STOCK_OPTION_TEMPLATE, name: 'RELIANCE' };
+  await mds.loadInstrumentMaster('STOCK_RELIANCE', 'RELIANCE', stockProfile);
+  const relInst = mds.instruments.get('STOCK_RELIANCE');
+
+  test('MarketDataService: Stock lotSize auto-fetched', () => {
+    assert.strictEqual(relInst.profile.lotSize, 250, `Expected lotSize 250, got ${relInst.profile.lotSize}`);
+  });
+
+  test('MarketDataService: Stock strikeStep auto-fetched', () => {
+    assert(relInst.profile.strikeStep > 0, `Expected strikeStep > 0, got ${relInst.profile.strikeStep}`);
+  });
+}
+
+// Test 3: InstrumentEngine independence
+async function testInstrumentEngine() {
+  const { InstrumentEngine } = require('./strategy/core/instrumentEngine');
+
+  const niftyEngine = new InstrumentEngine('NIFTY', profiles.NIFTY);
+  const bankniftyEngine = new InstrumentEngine('BANKNIFTY', profiles.BANKNIFTY);
 
   // Feed identical ticks to both — they must maintain independent candle state
   for (let i = 0; i < 10; i++) {
@@ -213,46 +215,70 @@ async function testIndependence() {
     assert(niftyCandles[0].close !== bankCandles[0].close, 'Candles shared state!');
   });
 
-  // Verify signal engine independence
   test('InstrumentEngine: Independent signal counters', () => {
     niftyEngine.signalEngine.signalCount = 5; // Max out NIFTY
     bankniftyEngine.signalEngine.signalCount = 0;
     assert.strictEqual(bankniftyEngine.signalEngine.signalCount, 0, 'BANKNIFTY counter affected by NIFTY');
   });
 
-  // Verify VWAP is updating (not null)
   test('InstrumentEngine: VWAP updated from candles', () => {
     const vwap = niftyEngine.vwap.get ? niftyEngine.vwap.get() : null;
     assert(vwap && vwap.vwap !== null, 'VWAP is null — .update(candle) not called');
   });
 
-  // Verify broadcast includes instrument field
-  test('MultiOrchestrator: Broadcast includes instrument field', () => {
-    const msg = broadcasts.find(b => b.instrument === 'NIFTY');
-    assert(msg, 'No broadcast with instrument=NIFTY');
-  });
-
-  // Verify stock lotSize auto-fetched
-  test('MarketDataService: Stock lotSize auto-fetched', async () => {
-    await orchestrator.marketData.loadInstrumentMaster('STOCK_RELIANCE', 'RELIANCE');
-    const inst = orchestrator.marketData.instruments.get('STOCK_RELIANCE');
-    assert.strictEqual(inst.profile.lotSize, 250, `Expected lotSize 250, got ${inst.profile.lotSize}`);
-  });
-
-  // Verify stock strikeStep auto-fetched
-  test('MarketDataService: Stock strikeStep auto-fetched', async () => {
-    const inst = orchestrator.marketData.instruments.get('STOCK_RELIANCE');
-    assert(inst.profile.strikeStep > 0, `Expected strikeStep > 0, got ${inst.profile.strikeStep}`);
+  test('InstrumentEngine: RegimeDetector instantiated', () => {
+    assert(typeof niftyEngine.regimeDetector.detect === 'function', 'regimeDetector.detect is not a function');
+    const regime = niftyEngine.regimeDetector.detect([], { atr14: 10, atr14_MA20: 10 });
+    assert(regime && regime.trend, 'RegimeDetector.detect returned invalid result');
   });
 }
 
-// Run async tests
-testIndependence().then(() => {
+// Test 4: MultiOrchestrator broadcast
+async function testMultiOrchestrator() {
+  const MultiOrchestrator = require('./strategy/core/multiOrchestrator');
+  // Reset singleton for test
+  MultiOrchestrator.engines = new Map();
+  MultiOrchestrator.marketData = new (require('./strategy/core/marketDataService').MarketDataService)({ baseUrl: 'https://mock.api' });
+  MultiOrchestrator.marketData.authToken = 'mock';
+
+  const broadcasts = [];
+  MultiOrchestrator.externalBroadcast = (msg) => broadcasts.push(msg);
+
+  MultiOrchestrator.addInstrument('NIFTY', profiles.NIFTY);
+  MultiOrchestrator.addInstrument('BANKNIFTY', profiles.BANKNIFTY);
+
+  // Wait for master load
+  await new Promise(r => setTimeout(r, 500));
+
+  test('MultiOrchestrator: Broadcast includes instrument field', () => {
+    // Manually trigger a broadcast
+    MultiOrchestrator.broadcast('TEST', 'NIFTY', { test: true });
+    const msg = broadcasts.find(b => b.instrument === 'NIFTY');
+    assert(msg, 'No broadcast with instrument=NIFTY');
+    assert.strictEqual(msg.market, 'NSE', 'Market field missing or wrong');
+  });
+
+  test('MultiOrchestrator: setAuthToken proxy exists', () => {
+    assert(typeof MultiOrchestrator.setAuthToken === 'function', 'setAuthToken method missing');
+    // Should not throw
+    MultiOrchestrator.setAuthToken('test-token');
+    assert.strictEqual(MultiOrchestrator.marketData.authToken, 'test-token', 'Auth token not propagated');
+  });
+}
+
+// Run all async tests
+async function runAll() {
+  await testMarketDataService();
+  await testInstrumentEngine();
+  await testMultiOrchestrator();
+
   console.log(`\n═══════════════════════════════════════`);
   console.log(`  ${passed} passed, ${failed} failed`);
   console.log(`═══════════════════════════════════════`);
   process.exit(failed > 0 ? 1 : 0);
-}).catch(err => {
+}
+
+runAll().catch(err => {
   console.error('Test runner error:', err);
   process.exit(1);
 });

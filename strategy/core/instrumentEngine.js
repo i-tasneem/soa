@@ -1,7 +1,8 @@
 // ============================================================
-// INSTRUMENT ENGINE (FIXED — Phase 2)
+// INSTRUMENT ENGINE (FINAL FIX — Phase 2)
 // Per-instrument signal engine — fully independent, no shared state
-// FIXES: VWAP uses .update(candle) not .tick(ltp); RegimeDetector instantiable
+// FIXES: VWAP uses .update(candle); RegimeDetector instantiable; 
+//        robust error handling in all callbacks
 // ============================================================
 
 const { CandleBuilder } = require('../candleBuilder');
@@ -48,7 +49,7 @@ class InstrumentEngine {
     // Fresh instances — NO shared state with other instruments
     this.expiryCalc = createExpiryCalculator(profile);
     this.candleBuilder = new CandleBuilder();
-    this.vwap = VWAPCalculator ? new VWAPCalculator() : { update: () => {}, reset: () => {} };
+    this.vwap = VWAPCalculator ? new VWAPCalculator() : { update: () => {}, get: () => ({ vwap: null }), reset: () => {} };
     this.marketState = new MarketStateEngineClass();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();

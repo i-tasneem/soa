@@ -1,7 +1,7 @@
 // ============================================================
-// MARKET DATA SERVICE (FIXED — Phase 2)
+// MARKET DATA SERVICE (FINAL FIX — Phase 2)
 // Strike normalization: Angel One master stores strikes in paise (×100)
-// Name matching: fallback to symbol prefix if exact name fails
+// Profile injection: accepts full instrument profile for correct filtering
 // Rate limiting: fixed burst protection
 // ============================================================
 
@@ -66,44 +66,58 @@ class MarketDataService {
     }
   }
 
-  async loadInstrumentMaster(instrumentId, stockName = null) {
+  // CRITICAL FIX: accept full profile as 3rd argument
+  async loadInstrumentMaster(instrumentId, stockName = null, profile = null) {
     const entry = this.instruments.get(instrumentId);
     if (!entry) {
       this.instruments.set(instrumentId, {
-        profile: { name: stockName || instrumentId },
+        profile: profile || { name: stockName || instrumentId },
         lastLTP: null, lastChain: null, tokenMap: {}, expiryCalc: null,
         masterFile: null, masterLoadedAt: 0,
       });
+    } else if (profile) {
+      // Merge incoming profile into existing entry
+      entry.profile = { ...entry.profile, ...profile };
     }
     const inst = this.instruments.get(instrumentId);
 
     try {
       const master = await this._fetchMaster();
       const nameUpper = (stockName || inst.profile.name || instrumentId).toUpperCase();
+      const optExch = inst.profile.optionExchange;
+      const instType = inst.profile.instrumenttype;
 
-      // Try exact name match first
+      logger.info(`[${instrumentId}] Filtering master: name=${nameUpper}, exch=${optExch}, type=${instType}`);
+
+      // Tier 1: exact name match
       let filtered = master.filter(s =>
-        s.exch_seg === inst.profile.optionExchange &&
-        s.instrumenttype === inst.profile.instrumenttype &&
+        s.exch_seg === optExch &&
+        s.instrumenttype === instType &&
         s.name && s.name.toUpperCase() === nameUpper
       );
 
-      // Fallback: symbol prefix match (e.g., "NIFTY" matches "NIFTY30JUN2623450CE")
+      // Tier 2: symbol prefix match (e.g., "NIFTY" matches "NIFTY30JUN2623450CE")
       if (filtered.length === 0) {
         filtered = master.filter(s =>
-          s.exch_seg === inst.profile.optionExchange &&
-          s.instrumenttype === inst.profile.instrumenttype &&
+          s.exch_seg === optExch &&
+          s.instrumenttype === instType &&
           s.symbol && s.symbol.toUpperCase().startsWith(nameUpper)
         );
+        if (filtered.length > 0) {
+          logger.info(`[${instrumentId}] Fallback symbol-prefix match: ${filtered.length} symbols`);
+        }
       }
 
-      // Fallback: name includes (for indices like BANKNIFTY)
+      // Tier 3: name includes
       if (filtered.length === 0) {
         filtered = master.filter(s =>
-          s.exch_seg === inst.profile.optionExchange &&
-          s.instrumenttype === inst.profile.instrumenttype &&
+          s.exch_seg === optExch &&
+          s.instrumenttype === instType &&
           s.name && s.name.toUpperCase().includes(nameUpper)
         );
+        if (filtered.length > 0) {
+          logger.info(`[${instrumentId}] Fallback name-includes match: ${filtered.length} symbols`);
+        }
       }
 
       inst.tokenMap = this._buildTokenMap(filtered);
@@ -160,7 +174,6 @@ class MarketDataService {
     }
     if (this.apiCallCount >= 15) {
       await new Promise(r => setTimeout(r, 100));
-      // Re-check after delay
       if (Date.now() - this.lastApiReset < 1000 && this.apiCallCount >= 15) {
         await new Promise(r => setTimeout(r, 100));
       }
@@ -245,7 +258,7 @@ class MarketDataService {
     }
 
     if (tokens.length === 0) {
-      logger.warn(`[${instrumentId}] No option tokens matched for expiry ${expiry}, spot ${spotPrice}, range ${minStrike}-${maxStrike}`);
+      logger.warn(`[${instrumentId}] No option tokens matched for expiry ${expiry}, spot ${spotPrice}, range ${minStrike}-${maxStrike}. TokenMap size: ${Object.keys(inst.tokenMap || {}).length}`);
       return { chainData: [], premiums: { ce: null, pe: null }, instrumentId };
     }
 
@@ -325,7 +338,12 @@ class MarketDataService {
     }
   }
 
+  // Safe signature: supports both (id, callback) and (id, authToken, callback)
   startPolling(instrumentId, authToken, callback) {
+    if (typeof authToken === 'function') {
+      callback = authToken;
+      authToken = null;
+    }
     this.stopPolling(instrumentId);
 
     const ltpInterval = setInterval(async () => {

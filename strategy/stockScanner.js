@@ -1,5 +1,5 @@
 // ============================================================
-// STOCK SCANNER (FIXED — Phase 2)
+// STOCK SCANNER (FINAL FIX — Phase 2)
 // Liquidity check: spread < 8% AND premium > minPremium
 // Only activates stocks that pass the filter
 // ============================================================
@@ -123,9 +123,9 @@ class StockScanner {
           // Activate the stock
           this.multiOrchestrator.addStock(stockName);
           this.activeStockEngines.set(stockName, { engineId: stockId, addedAt: Date.now() });
-          logger.info(`Stock scanner activated: ${stockName} (spread:${spread.toFixed(1)}%, CE:₹${ceLTP}, PE:₹${peLTP})`);
+          logger.info(`Stock scanner activated: ${stockName} (spread:${spread.toFixed(1)}%, CE:Rs${ceLTP}, PE:Rs${peLTP})`);
         } else {
-          logger.info(`Stock scanner skipped ${stockName}: spread=${spread.toFixed(1)}%, CE=₹${ceLTP}, PE=₹${peLTP} (needs spread<8% & premium>${minPremium})`);
+          logger.info(`Stock scanner skipped ${stockName}: spread=${spread.toFixed(1)}%, CE=Rs${ceLTP}, PE=Rs${peLTP} (needs spread<8% & premium>${minPremium})`);
         }
       } catch (err) {
         logger.error(`Stock scan error for ${stockName}: ${err.message}`);

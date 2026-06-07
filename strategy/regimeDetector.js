@@ -1,6 +1,7 @@
 // ============================================================
-// REGIME DETECTOR (FIXED — Phase 2)
+// REGIME DETECTOR (FINAL FIX — Phase 2)
 // Now instantiable with detect() and reset() instance methods
+// Backward-compatible static methods preserved
 // ============================================================
 
 class RegimeDetector {
