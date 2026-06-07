@@ -104,6 +104,10 @@ class MarketDataService {
 
     try {
       const master = await this._fetchMaster();
+	  
+	  console.log('SAMPLE MASTER ENTRY:', JSON.stringify(master[0]));
+console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.name.includes('NIFTY')) || master[100]));
+
 
       let filtered;
       if (stockName) {
