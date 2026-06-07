@@ -27,7 +27,6 @@ try {
 } catch (err) {
   logger.error(`❌ FATAL: Failed to load strategy modules: ${err.message}`);
   logger.error(err.stack);
-  // Keep process alive so Railway shows the error, then exit
   setTimeout(() => process.exit(1), 5000);
   throw err;
 }
@@ -61,9 +60,14 @@ async function authenticate() {
   logger.info('Starting Angel One authentication...');
   try {
     const totp = otplib.authenticator.generate(config.angel.totpSecret);
-    logger.info(`TOTP generated, attempting login...`);
+    logger.info(`TOTP generated: ${totp}`);
 
-    const resp = await axios.post(`${config.angel.baseUrl}/rest/auth/angelbroking/user/v1/loginByPassword`, {
+    const loginUrl = `${config.angel.baseUrl}/rest/auth/angelbroking/user/v1/loginByPassword`;
+    logger.info(`Login URL: ${loginUrl}`);
+    logger.info(`Client code: ${config.angel.clientId}`);
+    logger.info(`API Key present: ${!!config.angel.apiKey}`);
+
+    const resp = await axios.post(loginUrl, {
       clientcode: config.angel.clientId,
       password: config.angel.password,
       totp: totp,
@@ -76,11 +80,18 @@ async function authenticate() {
         'X-ClientLocalIP': 'CLIENT_LOCAL_IP',
         'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
         'X-MACAddress': 'MAC_ADDRESS',
+        'X-PrivateKey': config.angel.apiKey,  // ← REQUIRED: API Key header
       },
       timeout: 30000,
     });
 
-    if (resp.data && resp.data.status && resp.data.data) {
+    logger.info(`Login response: ${JSON.stringify(resp.data)}`);
+
+    // Angel One returns { success: true/false, message: "...", data: {...} }
+    // OR { status: true/false, message: "...", data: {...} }
+    const isSuccess = resp.data?.success === true || resp.data?.status === true;
+
+    if (isSuccess && resp.data?.data) {
       authToken = resp.data.data.jwtToken;
       refreshToken = resp.data.data.refreshToken;
       feedToken = resp.data.data.feedToken;
@@ -93,14 +104,20 @@ async function authenticate() {
         multiOrchestrator.marketData.brokerConfig.baseUrl = config.angel.baseUrl;
       }
 
-      logger.info('Angel One authenticated successfully');
+      logger.info('✅ Angel One authenticated successfully');
       broadcastToAllClients({ type: 'AUTH_STATUS', status: 'connected', message: 'Angel One Live' });
       initializeInstruments();
     } else {
-      throw new Error(resp.data?.message || 'Authentication failed');
+      const msg = resp.data?.message || resp.data?.errorCode || 'Authentication failed';
+      logger.error(`❌ Login rejected: ${msg}`);
+      throw new Error(msg);
     }
   } catch (err) {
-    logger.error(`Authentication error: ${err.message}`);
+    if (err.response) {
+      logger.error(`❌ Authentication HTTP ${err.response.status}: ${JSON.stringify(err.response.data)}`);
+    } else {
+      logger.error(`❌ Authentication error: ${err.message}`);
+    }
     broadcastToAllClients({ type: 'AUTH_STATUS', status: 'error', message: err.message });
     setTimeout(authenticate, 60000);
   }
@@ -114,12 +131,12 @@ function initializeInstruments() {
     if (profile) {
       try {
         multiOrchestrator.addInstrument(instId, profile);
-        logger.info(`Added instrument: ${instId}`);
+        logger.info(`✅ Added instrument: ${instId}`);
       } catch (err) {
-        logger.error(`Failed to add instrument ${instId}: ${err.message}`);
+        logger.error(`❌ Failed to add instrument ${instId}: ${err.message}`);
       }
     } else {
-      logger.warn(`No profile found for instrument: ${instId}`);
+      logger.warn(`⚠️ No profile found for instrument: ${instId}`);
     }
   }
 
@@ -253,17 +270,19 @@ app.post('/api/auth/refresh', async (req, res) => {
       headers: {
         'Authorization': `Bearer ${authToken}`,
         'Content-Type': 'application/json',
+        'X-PrivateKey': config.angel.apiKey,
       },
     });
 
-    if (resp.data && resp.data.status && resp.data.data) {
+    const isSuccess = resp.data?.success === true || resp.data?.status === true;
+    if (isSuccess && resp.data?.data) {
       authToken = resp.data.data.jwtToken;
       refreshToken = resp.data.data.refreshToken;
       feedToken = resp.data.data.feedToken;
       multiOrchestrator.setAuthToken(authToken);
       res.json({ status: 'success', message: 'Token refreshed' });
     } else {
-      throw new Error('Refresh failed');
+      throw new Error(resp.data?.message || 'Refresh failed');
     }
   } catch (err) {
     res.status(500).json({ status: 'error', message: err.message });
@@ -275,9 +294,9 @@ const PORT = config.server.port;
 const HOST = config.server.host;
 
 server.listen(PORT, HOST, () => {
-  logger.info(`SOA Trader server running on http://${HOST}:${PORT}`);
-  logger.info(`Active instruments: ${config.activeInstruments.join(', ')}`);
-  logger.info(`Stock options enabled: ${config.enableStockOptions}`);
+  logger.info(`🚀 SOA Trader server running on http://${HOST}:${PORT}`);
+  logger.info(`📊 Active instruments: ${config.activeInstruments.join(', ')}`);
+  logger.info(`📈 Stock options enabled: ${config.enableStockOptions}`);
 
   setTimeout(() => {
     authenticate();
