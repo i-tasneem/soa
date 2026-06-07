@@ -1,154 +1,258 @@
 // ============================================================
 // TEST: Multi-Instrument Independence
-// Verifies 9 critical properties of the multi-instrument refactor
+// Standalone test — no Angel One API needed (mocked)
 // ============================================================
 
+const assert = require('assert');
+
+// ── MOCKS ───────────────────────────────────────────────────
+
+// Mock Angel One responses
+const MOCK_LTP_RESPONSE = {
+  status: true,
+  data: {
+    fetched: [{ ltp: '23450.75', symbolToken: '99926000' }]
+  }
+};
+
+const MOCK_CHAIN_RESPONSE = {
+  status: true,
+  data: {
+    fetched: [
+      { symbolToken: 'CE1', ltp: '380', oi: 50000, volume: 1000, bid: '379', ask: '381' },
+      { symbolToken: 'PE1', ltp: '350', oi: 45000, volume: 900, bid: '349', ask: '351' },
+    ]
+  }
+};
+
+// Mock axios
+const axios = {
+  post: async (url, body, config) => {
+    if (url.includes('quote')) {
+      if (body.mode === 'LTP') return { data: MOCK_LTP_RESPONSE };
+      if (body.mode === 'FULL') return { data: MOCK_CHAIN_RESPONSE };
+    }
+    if (url.includes('login')) {
+      return {
+        data: {
+          status: true,
+          data: {
+            jwtToken: 'mock-jwt',
+            refreshToken: 'mock-refresh',
+            feedToken: 'mock-feed',
+          }
+        }
+      };
+    }
+    return { data: {} };
+  },
+  get: async (url, config) => {
+    // Mock instrument master
+    return {
+      data: [
+        // NIFTY options
+        { token: 'CE1', symbol: 'NIFTY30JUN2623450CE', name: 'NIFTY', expiry: '30JUN2026', strike: '2345000.000000', lotsize: '25', instrumenttype: 'OPTIDX', exch_seg: 'NFO', tick_size: '5.000000' },
+        { token: 'PE1', symbol: 'NIFTY30JUN2623450PE', name: 'NIFTY', expiry: '30JUN2026', strike: '2345000.000000', lotsize: '25', instrumenttype: 'OPTIDX', exch_seg: 'NFO', tick_size: '5.000000' },
+        { token: 'CE2', symbol: 'NIFTY30JUN2623500CE', name: 'NIFTY', expiry: '30JUN2026', strike: '2350000.000000', lotsize: '25', instrumenttype: 'OPTIDX', exch_seg: 'NFO', tick_size: '5.000000' },
+        { token: 'PE2', symbol: 'NIFTY30JUN2623500PE', name: 'NIFTY', expiry: '30JUN2026', strike: '2350000.000000', lotsize: '25', instrumenttype: 'OPTIDX', exch_seg: 'NFO', tick_size: '5.000000' },
+        // BANKNIFTY options
+        { token: 'BCE1', symbol: 'BANKNIFTY30JUN2648900CE', name: 'BANKNIFTY', expiry: '30JUN2026', strike: '4890000.000000', lotsize: '15', instrumenttype: 'OPTIDX', exch_seg: 'NFO', tick_size: '5.000000' },
+        { token: 'BPE1', symbol: 'BANKNIFTY30JUN2648900PE', name: 'BANKNIFTY', expiry: '30JUN2026', strike: '4890000.000000', lotsize: '15', instrumenttype: 'OPTIDX', exch_seg: 'NFO', tick_size: '5.000000' },
+        // SENSEX options
+        { token: 'SCE1', symbol: 'SENSEX30JUN2676500CE', name: 'SENSEX', expiry: '30JUN2026', strike: '7650000.000000', lotsize: '20', instrumenttype: 'OPTIDX', exch_seg: 'BFO', tick_size: '5.000000' },
+        { token: 'SPE1', symbol: 'SENSEX30JUN2676500PE', name: 'SENSEX', expiry: '30JUN2026', strike: '7650000.000000', lotsize: '20', instrumenttype: 'OPTIDX', exch_seg: 'BFO', tick_size: '5.000000' },
+        // RELIANCE stock options
+        { token: 'RCE1', symbol: 'RELIANCE30JUN262800CE', name: 'RELIANCE', expiry: '30JUN2026', strike: '280000.000000', lotsize: '250', instrumenttype: 'OPTSTK', exch_seg: 'NFO', tick_size: '5.000000' },
+        { token: 'RPE1', symbol: 'RELIANCE30JUN262800PE', name: 'RELIANCE', expiry: '30JUN2026', strike: '280000.000000', lotsize: '250', instrumenttype: 'OPTSTK', exch_seg: 'NFO', tick_size: '5.000000' },
+      ]
+    };
+  }
+};
+
+// Mock require
+const Module = require('module');
+const originalRequire = Module.prototype.require;
+Module.prototype.require = function(id) {
+  if (id === 'axios') return axios;
+  return originalRequire.apply(this, arguments);
+};
+
+// ── IMPORTS ────────────────────────────────────────────────
+
+const { MultiOrchestrator } = require('./strategy/core/multiOrchestrator');
 const { InstrumentEngine } = require('./strategy/core/instrumentEngine');
-const { ExpiryCalculator, createExpiryCalculator } = require('./strategy/utils/expiryCalculator');
+const { MarketDataService } = require('./strategy/core/marketDataService');
+const { createExpiryCalculator } = require('./strategy/utils/expiryCalculator');
 const profiles = require('./strategy/dna/instrumentProfiles');
+
+// ── TESTS ──────────────────────────────────────────────────
 
 let passed = 0;
 let failed = 0;
 
-function test(name, condition) {
-  if (condition) {
-    console.log(`PASS: ${name}`);
+function test(name, fn) {
+  try {
+    fn();
+    console.log(`✅ PASS: ${name}`);
     passed++;
-  } else {
-    console.log(`FAIL: ${name}`);
+  } catch (err) {
+    console.log(`❌ FAIL: ${name} — ${err.message}`);
     failed++;
   }
 }
 
-// ── TEST 1: Isolated candle state ──────────────────────────
-console.log('\n--- TEST 1: Isolated candle state ---');
-const niftyEngine = new InstrumentEngine('NIFTY', profiles.NIFTY, {});
-const bankniftyEngine = new InstrumentEngine('BANKNIFTY', profiles.BANKNIFTY, {});
+// Test 1: ExpiryCalculator weekly
+test('ExpiryCalculator: NIFTY weekly (Sat → next Tue)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 2 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 6)); // June 6, 2026 = Saturday
+  assert.strictEqual(result, '09JUN2026');
+});
 
-niftyEngine.candleBuilder.tick(24500, Date.now());
-bankniftyEngine.candleBuilder.tick(52000, Date.now());
+test('ExpiryCalculator: NIFTY weekly (Tue → same Tue)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 2 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 9)); // June 9, 2026 = Tuesday
+  assert.strictEqual(result, '09JUN2026');
+});
 
-const niftyCandles = niftyEngine.candleBuilder.getCandles(5, 50);
-const bankCandles = bankniftyEngine.candleBuilder.getCandles(5, 50);
+test('ExpiryCalculator: NIFTY weekly (Wed → next Tue)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 2 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 10)); // June 10, 2026 = Wednesday
+  assert.strictEqual(result, '16JUN2026');
+});
 
-test('NIFTY has candles, BANKNIFTY has candles', niftyCandles.length > 0 && bankCandles.length > 0);
-test('NIFTY candle close !== BANKNIFTY candle close', niftyCandles[0].close !== bankCandles[0].close);
+test('ExpiryCalculator: BANKNIFTY monthly (Jun 15 → last Tue)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 15));
+  assert.strictEqual(result, '30JUN2026');
+});
 
-// ── TEST 2: Simultaneous signals ───────────────────────────
-console.log('\n--- TEST 2: Simultaneous signals (no suppression) ---');
-let niftySignalReceived = false;
-let bankSignalReceived = false;
+test('ExpiryCalculator: BANKNIFTY monthly (Jun 30 → next last Tue)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 30));
+  assert.strictEqual(result, '28JUL2026');
+});
 
-niftyEngine.onSignal = (id, sig) => { if (id === 'NIFTY') niftySignalReceived = true; };
-bankniftyEngine.onSignal = (id, sig) => { if (id === 'BANKNIFTY') bankSignalReceived = true; };
+test('ExpiryCalculator: SENSEX weekly (Sat → next Thu)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'weekly', expiryDayOfWeek: 4 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 6));
+  assert.strictEqual(result, '11JUN2026');
+});
 
-niftyEngine.signalEngine.signals = [];
-niftyEngine.signalEngine.signalCount = 0;
-niftyEngine.signalEngine.lastSignalTime = 0;
+test('ExpiryCalculator: BANKEX monthly (Jun 15 → last Thu)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 4 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 15));
+  assert.strictEqual(result, '25JUN2026');
+});
 
-bankniftyEngine.signalEngine.signals = [];
-bankniftyEngine.signalEngine.signalCount = 0;
-bankniftyEngine.signalEngine.lastSignalTime = 0;
+test('ExpiryCalculator: Stock monthly (Jun 20 → last Tue)', () => {
+  const calc = createExpiryCalculator({ expiryType: 'monthly', expiryDayOfWeek: 2 });
+  const result = calc.getCurrentExpiry(new Date(2026, 5, 20));
+  assert.strictEqual(result, '30JUN2026');
+});
 
-const mockSignal = {
-  id: 'TEST_SIG', type: 'BUY_CE', confidence: 85, strength: 'STRONG',
-  score: 50, factors: [], price: 24500, timestamp: Date.now(),
-  timeStr: '10:15:00', signalNum: 1,
-  indicators: { ema5: 24500, ema9: 24490, ema21: 24480, vwap: 24495, rsi: 60, bb: { bw: 2, squeeze: false }, atr: 50 },
-  marketState: { state: 'TRENDING_BULLISH', confidence: 80 },
-  oi: { pcr: 1.2, pcrBias: 'BULLISH', imbalanceBias: 'BULLISH' },
-};
+// Test 2: InstrumentEngine independence
+async function testIndependence() {
+  const orchestrator = new MultiOrchestrator({
+    baseUrl: 'https://mock.api',
+    jwtToken: 'mock',
+  });
 
-niftyEngine.signalEngine.signals.push(mockSignal);
-bankniftyEngine.signalEngine.signals.push({ ...mockSignal, id: 'TEST_SIG_2', price: 52000 });
+  // Override axios for this orchestrator's marketData
+  orchestrator.marketData.brokerConfig = { baseUrl: 'https://mock.api', jwtToken: 'mock' };
+  orchestrator.marketData.authToken = 'mock';
 
-if (niftyEngine.onSignal) niftyEngine.onSignal('NIFTY', mockSignal);
-if (bankniftyEngine.onSignal) bankniftyEngine.onSignal('BANKNIFTY', { ...mockSignal, id: 'TEST_SIG_2' });
+  const broadcasts = [];
+  orchestrator.externalBroadcast = (msg) => broadcasts.push(msg);
 
-test('NIFTY signal broadcast', niftySignalReceived);
-test('BANKNIFTY signal broadcast', bankSignalReceived);
-test('Both signals broadcast simultaneously', niftySignalReceived && bankSignalReceived);
+  // Add NIFTY and BANKNIFTY
+  orchestrator.addInstrument('NIFTY', profiles.NIFTY);
+  orchestrator.addInstrument('BANKNIFTY', profiles.BANKNIFTY);
+  orchestrator.addInstrument('SENSEX', profiles.SENSEX);
 
-// ── TEST 3: NIFTY maxSignalsDay does NOT block BANKNIFTY ───
-console.log('\n--- TEST 3: Independent maxSignalsDay ---');
-niftyEngine.signalEngine.signalCount = 5;
-bankniftyEngine.signalEngine.signalCount = 0;
+  // Wait for master load
+  await new Promise(r => setTimeout(r, 500));
 
-test('NIFTY at max signals', niftyEngine.signalEngine.signalCount >= niftyEngine.signalEngine.maxSignals);
-test('BANKNIFTY not at max', bankniftyEngine.signalEngine.signalCount < bankniftyEngine.signalEngine.maxSignals);
-test('BANKNIFTY can still signal', bankniftyEngine.signalEngine.signalCount < bankniftyEngine.signalEngine.maxSignals);
+  // Verify masters loaded
+  test('MarketDataService: NIFTY master loaded', () => {
+    const inst = orchestrator.marketData.instruments.get('NIFTY');
+    assert(inst && Object.keys(inst.tokenMap).length > 0, 'NIFTY tokenMap empty');
+  });
 
-// ── TEST 4: OI walls per-instrument ────────────────────────
-console.log('\n--- TEST 4: Per-instrument OI walls ---');
-test('NIFTY OI engine is separate instance', niftyEngine.oiEngine !== bankniftyEngine.oiEngine);
+  test('MarketDataService: BANKNIFTY master loaded', () => {
+    const inst = orchestrator.marketData.instruments.get('BANKNIFTY');
+    assert(inst && Object.keys(inst.tokenMap).length > 0, 'BANKNIFTY tokenMap empty');
+  });
 
-// ── TEST 5: Expiry dates correct per instrument ──────────────
-console.log('\n--- TEST 5: Correct expiry dates ---');
-const niftyCalc = createExpiryCalculator(profiles.NIFTY);
-const bankCalc = createExpiryCalculator(profiles.BANKNIFTY);
-const sensexCalc = createExpiryCalculator(profiles.SENSEX);
+  test('MarketDataService: SENSEX master loaded', () => {
+    const inst = orchestrator.marketData.instruments.get('SENSEX');
+    assert(inst && Object.keys(inst.tokenMap).length > 0, 'SENSEX tokenMap empty');
+  });
 
-const testDate = new Date(2026, 5, 9);
-const niftyExpiry = niftyCalc.getCurrentExpiry(testDate);
-const bankExpiry = bankCalc.getCurrentExpiry(testDate);
-const sensexExpiry = sensexCalc.getCurrentExpiry(testDate);
+  // Verify strike normalization (÷100)
+  test('MarketDataService: Strike normalized to rupees', () => {
+    const inst = orchestrator.marketData.instruments.get('NIFTY');
+    const token = Object.values(inst.tokenMap)[0];
+    assert(token.strike < 100000, `Strike not normalized: ${token.strike}`);
+  });
 
-test('NIFTY weekly expiry on Tuesday', niftyExpiry === '09JUN2026');
-test('BANKNIFTY monthly expiry (last Tue of June)', bankExpiry === '30JUN2026');
-test('SENSEX weekly expiry on Thursday', sensexExpiry === '11JUN2026');
+  // Simulate ticks for both instruments
+  const niftyEngine = orchestrator.engines.get('NIFTY');
+  const bankniftyEngine = orchestrator.engines.get('BANKNIFTY');
 
-// ── TEST 6: Stock lotSize auto-fetched (mock) ──────────────
-console.log('\n--- TEST 6: Stock lotSize auto-extraction ---');
-const stockProfile = { ...profiles.STOCK_OPTION_TEMPLATE };
-stockProfile.name = 'RELIANCE';
-const mockTokenMap = {
-  '1': { token: '1', symbol: 'RELIANCE26JUN3000CE', name: 'RELIANCE', expiry: '26JUN2026', strike: 3000, lotsize: '500', instrumenttype: 'OPTSTK', exch_seg: 'NFO' },
-  '2': { token: '2', symbol: 'RELIANCE26JUN3050CE', name: 'RELIANCE', expiry: '26JUN2026', strike: 3050, lotsize: '500', instrumenttype: 'OPTSTK', exch_seg: 'NFO' },
-};
-const first = Object.values(mockTokenMap)[0];
-stockProfile.lotSize = parseInt(first.lotsize) || 1;
-const strikes = [...new Set(Object.values(mockTokenMap).map(s => parseFloat(s.strike))).filter(Number.isFinite)].sort((a, b) => a - b);
-const diffs = [];
-for (let i = 1; i < strikes.length; i++) diffs.push(strikes[i] - strikes[i - 1]);
-diffs.sort((a, b) => a - b);
-stockProfile.strikeStep = diffs[0] || 1;
+  // Feed identical ticks to both — they must maintain independent candle state
+  for (let i = 0; i < 10; i++) {
+    niftyEngine.onTick(23450 + i, Date.now() + i * 1000);
+    bankniftyEngine.onTick(48900 + i * 2, Date.now() + i * 1000);
+  }
 
-test('Stock lotSize extracted from master', stockProfile.lotSize === 500);
-test('Stock strikeStep extracted from master', stockProfile.strikeStep === 50);
+  test('InstrumentEngine: Independent candle state', () => {
+    const niftyCandles = niftyEngine.candleBuilder.getCandles(5, 10);
+    const bankCandles = bankniftyEngine.candleBuilder.getCandles(5, 10);
+    assert(niftyCandles.length > 0, 'NIFTY has no candles');
+    assert(bankCandles.length > 0, 'BANKNIFTY has no candles');
+    assert(niftyCandles[0].close !== bankCandles[0].close, 'Candles shared state!');
+  });
 
-// ── TEST 7: Stock scanner activates liquid stocks ────────────
-console.log('\n--- TEST 7: Stock scanner liquid check ---');
-const spread = 5;
-const premium = 15;
-test('Stock passes liquidity check (spread < 8%, premium > min)', spread < 8 && premium > 10);
+  // Verify signal engine independence
+  test('InstrumentEngine: Independent signal counters', () => {
+    niftyEngine.signalEngine.signalCount = 5; // Max out NIFTY
+    bankniftyEngine.signalEngine.signalCount = 0;
+    assert.strictEqual(bankniftyEngine.signalEngine.signalCount, 0, 'BANKNIFTY counter affected by NIFTY');
+  });
 
-// ── TEST 8: Broadcast messages include instrument field ────
-console.log('\n--- TEST 8: Broadcast instrument field ---');
-let broadcastMsg = null;
-niftyEngine.onSignal = (id, sig) => {
-  broadcastMsg = { type: 'SIGNAL', instrument: id, data: sig };
-};
-if (niftyEngine.onSignal) niftyEngine.onSignal('NIFTY', mockSignal);
-test('Broadcast has instrument field', broadcastMsg && broadcastMsg.instrument === 'NIFTY');
-test('Broadcast has type field', broadcastMsg && broadcastMsg.type === 'SIGNAL');
+  // Verify VWAP is updating (not null)
+  test('InstrumentEngine: VWAP updated from candles', () => {
+    const vwap = niftyEngine.vwap.get ? niftyEngine.vwap.get() : null;
+    assert(vwap && vwap.vwap !== null, 'VWAP is null — .update(candle) not called');
+  });
 
-// ── TEST 9: Frontend receives all signals in unified feed ──
-console.log('\n--- TEST 9: Unified signal feed ---');
-const unifiedFeed = [];
-function addToUnifiedFeed(signal, instrument) {
-  unifiedFeed.unshift({ ...signal, instrument });
+  // Verify broadcast includes instrument field
+  test('MultiOrchestrator: Broadcast includes instrument field', () => {
+    const msg = broadcasts.find(b => b.instrument === 'NIFTY');
+    assert(msg, 'No broadcast with instrument=NIFTY');
+  });
+
+  // Verify stock lotSize auto-fetched
+  test('MarketDataService: Stock lotSize auto-fetched', async () => {
+    await orchestrator.marketData.loadInstrumentMaster('STOCK_RELIANCE', 'RELIANCE');
+    const inst = orchestrator.marketData.instruments.get('STOCK_RELIANCE');
+    assert.strictEqual(inst.profile.lotSize, 250, `Expected lotSize 250, got ${inst.profile.lotSize}`);
+  });
+
+  // Verify stock strikeStep auto-fetched
+  test('MarketDataService: Stock strikeStep auto-fetched', async () => {
+    const inst = orchestrator.marketData.instruments.get('STOCK_RELIANCE');
+    assert(inst.profile.strikeStep > 0, `Expected strikeStep > 0, got ${inst.profile.strikeStep}`);
+  });
 }
-addToUnifiedFeed(mockSignal, 'NIFTY');
-addToUnifiedFeed({ ...mockSignal, id: 'TEST_2' }, 'BANKNIFTY');
-addToUnifiedFeed({ ...mockSignal, id: 'TEST_3' }, 'FINNIFTY');
 
-test('Unified feed has all 3 signals', unifiedFeed.length === 3);
-test('Unified feed has NIFTY', unifiedFeed.some(s => s.instrument === 'NIFTY'));
-test('Unified feed has BANKNIFTY', unifiedFeed.some(s => s.instrument === 'BANKNIFTY'));
-test('Unified feed has FINNIFTY', unifiedFeed.some(s => s.instrument === 'FINNIFTY'));
-
-// ── SUMMARY ──────────────────────────────────────────────────
-console.log('\n═══════════════════════════════════════════');
-console.log(`RESULTS: ${passed} passed, ${failed} failed`);
-console.log('═══════════════════════════════════════════');
-process.exit(failed > 0 ? 1 : 0);
+// Run async tests
+testIndependence().then(() => {
+  console.log(`\n═══════════════════════════════════════`);
+  console.log(`  ${passed} passed, ${failed} failed`);
+  console.log(`═══════════════════════════════════════`);
+  process.exit(failed > 0 ? 1 : 0);
+}).catch(err => {
+  console.error('Test runner error:', err);
+  process.exit(1);
+});

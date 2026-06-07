@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#050810">
-<title>SOA Trader</title>
+<title>SOA Trader — Multi-Instrument</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +14,6 @@
 /* ═══════════════════════════════════════════════════════════
    DESIGN SYSTEM — Bloomberg Terminal × Luxury Fintech
    Primary: Deep space navy | Accent: Liquid gold #F0A500
-   Typography: Bebas Neue (headers) + Space Mono (data) + DM Sans (body)
 ═══════════════════════════════════════════════════════════ */
 :root{
   --void:    #03050d;
@@ -50,14 +49,8 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;background:var(--void);color:var(--text);font-family:var(--body);overflow:hidden;-webkit-font-smoothing:antialiased}
-
-/* SCANLINE TEXTURE */
 body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);pointer-events:none;z-index:9999}
-
-/* APP SHELL */
 #app{display:flex;flex-direction:column;height:100%;max-width:430px;margin:0 auto;background:var(--bg);position:relative;overflow:hidden}
-
-/* AMBIENT GLOW */
 #app::before{content:'';position:absolute;top:-80px;left:50%;transform:translateX(-50%);width:300px;height:200px;background:radial-gradient(ellipse,rgba(240,165,0,0.06) 0%,transparent 70%);pointer-events:none;z-index:0}
 
 /* ── HEADER ─────────────────────────────────────────────── */
@@ -69,20 +62,22 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .clock{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--text);letter-spacing:2px;line-height:1}
 .date-line{font-size:8px;color:var(--text3);font-family:var(--mono);letter-spacing:1px;margin-top:2px}
 
-/* ── INSTRUMENT TABS ────────────────────────────────────── */
-#instrument-tabs{position:relative;z-index:10;display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--border);background:var(--bg2);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-#instrument-tabs::-webkit-scrollbar{display:none}
-.inst-tab{flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);background:transparent;color:var(--text3);font-family:var(--mono);font-size:9px;letter-spacing:0.5px;cursor:pointer;transition:all 0.2s;white-space:nowrap}
-.inst-tab.active{border-color:var(--gold);color:var(--gold);background:var(--gold-bg)}
-.inst-tab.flash{animation:tabFlash 2s ease}
-@keyframes tabFlash{0%,100%{border-color:var(--gold);box-shadow:0 0 0 0 rgba(240,165,0,0)}50%{border-color:var(--gold);box-shadow:0 0 8px rgba(240,165,0,0.4);color:var(--gold)}}
+/* ── INSTRUMENT SELECTOR ───────────────────────────────── */
+.inst-bar{position:relative;z-index:10;display:flex;gap:4px;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--bg2);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.inst-bar::-webkit-scrollbar{display:none}
+.inst-btn{flex-shrink:0;padding:5px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--bg3);color:var(--text3);font-family:var(--mono);font-size:9px;letter-spacing:0.5px;cursor:pointer;transition:all 0.2s;white-space:nowrap;position:relative}
+.inst-btn.active{border-color:var(--gold);color:var(--gold);background:var(--gold-bg);box-shadow:0 0 8px rgba(240,165,0,0.15)}
+.inst-btn.flash{animation:tabFlash 0.6s ease 3}
+.inst-btn .inst-badge{position:absolute;top:-3px;right:-3px;width:14px;height:14px;border-radius:50%;background:var(--red);color:#fff;font-size:8px;display:flex;align-items:center;justify-content:center;font-weight:700;opacity:0;transition:opacity 0.3s}
+.inst-btn .inst-badge.show{opacity:1}
+@keyframes tabFlash{0%,100%{border-color:var(--border);box-shadow:none}50%{border-color:var(--gold);box-shadow:0 0 12px rgba(240,165,0,0.4)}}
 
-/* ── SENSEX TICKER BAR ──────────────────────────────────── */
+/* ── TICKER BAR ────────────────────────────────────────── */
 .ticker{position:relative;z-index:10;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;align-items:center;gap:12px}
-.sensex-price{font-family:var(--display);font-size:28px;letter-spacing:2px;color:var(--gold);line-height:1;text-shadow:0 0 15px rgba(240,165,0,0.2)}
-.sensex-meta{display:flex;flex-direction:column;gap:2px}
-.sensex-chg{font-family:var(--mono);font-size:12px;font-weight:700}
-.sensex-label{font-size:9px;color:var(--text3);letter-spacing:1px;font-family:var(--mono)}
+.ticker-price{font-family:var(--display);font-size:28px;letter-spacing:2px;color:var(--gold);line-height:1;text-shadow:0 0 15px rgba(240,165,0,0.2)}
+.ticker-meta{display:flex;flex-direction:column;gap:2px}
+.ticker-chg{font-family:var(--mono);font-size:12px;font-weight:700}
+.ticker-label{font-size:9px;color:var(--text3);letter-spacing:1px;font-family:var(--mono)}
 .ticker-divider{width:1px;height:32px;background:var(--border2);margin:0 4px}
 .ticker-stat{display:flex;flex-direction:column;gap:2px}
 .ts-val{font-family:var(--mono);font-size:11px;color:var(--text)}
@@ -93,30 +88,12 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .conn-dot.wait{background:var(--amber);box-shadow:0 0 8px var(--amber)}
 @keyframes breathe{0%,100%{opacity:1}50%{opacity:0.4}}
 
-/* ── SESSION RIBBON ─────────────────────────────────────── */
+/* ── SESSION RIBBON ───────────────────────────────────── */
 .sribbon{position:relative;z-index:10;padding:6px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;transition:background 0.6s}
 .sribbon-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;animation:breathe 2s infinite}
 .sribbon-label{font-family:var(--display);font-size:16px;letter-spacing:2px;line-height:1}
 .sribbon-desc{font-size:10px;color:var(--text3);font-family:var(--mono);margin-left:auto}
 .sribbon-timer{font-family:var(--mono);font-size:11px;color:var(--gold);font-weight:700}
-
-/* ── UNIFIED SIGNAL FEED ───────────────────────────────── */
-#unified-signal-feed{position:relative;z-index:10;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--bg2);max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch}
-#unified-signal-feed::-webkit-scrollbar{width:2px}
-#unified-signal-feed::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-.unified-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.unified-title{font-family:var(--display);font-size:14px;letter-spacing:2px;color:var(--gold)}
-.unified-count{font-family:var(--mono);font-size:9px;color:var(--text3)}
-.signal-card{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--r);border:1px solid var(--border);background:var(--bg);margin-bottom:4px;animation:signalSlide 0.3s ease}
-@keyframes signalSlide{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
-.signal-card .inst-badge{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:3px;background:var(--bg3);color:var(--text);border:1px solid var(--border)}
-.signal-card .type-badge{font-family:var(--mono);font-size:9px;font-weight:700;padding:2px 6px;border-radius:3px}
-.type-badge.buy-ce{background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim)}
-.type-badge.buy-pe{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
-.signal-card .conf{font-family:var(--mono);font-size:10px;color:var(--gold)}
-.signal-card .strike{font-family:var(--mono);font-size:10px;color:var(--text)}
-.signal-card .prem{font-family:var(--mono);font-size:9px;color:var(--text2)}
-.signal-card .time{font-family:var(--mono);font-size:8px;color:var(--text3);margin-left:auto}
 
 /* ── CONTENT ─────────────────────────────────────────────── */
 .content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative;z-index:5}
@@ -265,14 +242,11 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .badge.r{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
 .badge.a{background:var(--gold-bg);color:var(--gold);border:1px solid var(--gold-dim)}
 .badge.d{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.badge.inst-nse{background:rgba(0,229,160,0.1);color:var(--green);border:1px solid var(--green-dim)}
+.badge.inst-bse{background:rgba(77,166,255,0.1);color:var(--blue);border:1px solid rgba(77,166,255,0.3)}
 
 /* ── DIVIDER ─────────────────────────────────────────────── */
 .divider{height:1px;background:linear-gradient(90deg,transparent,var(--border2),transparent);margin:14px 0}
-
-/* ── NEXT WINDOW ─────────────────────────────────────────── */
-.next-win{background:var(--gold-bg);border:1px solid var(--gold-dim);border-radius:var(--r);padding:8px 12px;margin-top:10px;display:flex;align-items:center;justify-content:space-between}
-.nw-text{font-size:10px;color:var(--text2);font-family:var(--mono)}
-.nw-time{font-family:var(--display);font-size:16px;color:var(--gold);letter-spacing:1px}
 
 /* ── CONN STATUS ─────────────────────────────────────────── */
 .conn-banner{background:var(--red-bg);border:1px solid var(--red-dim);border-radius:var(--r);padding:10px 14px;margin-bottom:12px;font-size:11px;color:var(--red);font-family:var(--mono);display:flex;align-items:center;gap:8px}
@@ -323,7 +297,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .sp-side{background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
 .sp-vol{background:var(--amber-bg);color:var(--amber);border:1px solid var(--gold-dim)}
 
-/* ── SIGNALS TAB ─────────────────────────────────────────── */
+/* ── SIGNALS TAB (Unified Feed) ──────────────────────────── */
 .sig-summary-chip{display:inline-flex;flex-direction:column;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rx);padding:8px 14px;min-width:70px;flex:1}
 .sig-summary-chip .chip-val{font-family:var(--mono);font-size:20px;font-weight:bold;line-height:1}
 .sig-summary-chip .chip-lbl{font-size:8px;color:var(--text3);letter-spacing:1px;font-family:var(--mono);margin-top:3px}
@@ -331,6 +305,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .sig-summary-chip.red   .chip-val{color:var(--red)}
 .sig-summary-chip.gold  .chip-val{color:var(--gold)}
 
+/* Unified signal card */
 .sigcard{border-radius:var(--rx);border:1px solid var(--border);background:var(--bg2);margin-bottom:10px;overflow:hidden;position:relative}
 .sigcard.sigcard-ce{border-left:3px solid var(--green)}
 .sigcard.sigcard-pe{border-left:3px solid var(--red)}
@@ -366,6 +341,38 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
 .sig-empty{text-align:center;padding:40px 20px;color:var(--text3);font-family:var(--mono);font-size:11px}
 .sig-near-badge{font-size:8px;font-family:var(--mono);background:var(--amber-bg);color:var(--amber);border:1px solid var(--gold-dim);border-radius:10px;padding:1px 6px;margin-left:6px;vertical-align:middle}
 
+/* Instrument badge in signal card */
+.sigcard-inst-badge{display:inline-flex;align-items:center;gap:4px;margin-bottom:6px}
+.sigcard-inst-badge .inst-name{font-family:var(--display);font-size:14px;letter-spacing:1.5px;color:var(--text)}
+.sigcard-inst-badge .inst-market{font-size:8px;font-family:var(--mono);padding:1px 6px;border-radius:8px}
+
+/* Mini signal feed on dashboard */
+.mini-sig-feed{max-height:300px;overflow-y:auto;margin-bottom:12px}
+.mini-sig-feed::-webkit-scrollbar{width:2px}
+.mini-sig-feed::-webkit-scrollbar-thumb{background:var(--border2)}
+.mini-sig-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px;font-family:var(--mono);cursor:pointer;transition:background 0.2s}
+.mini-sig-item:hover{background:var(--bg3)}
+.mini-sig-item:last-child{border:none}
+.mini-sig-badge{padding:2px 6px;border-radius:4px;font-size:8px;font-weight:700;letter-spacing:0.5px}
+.mini-sig-badge.ce{background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim)}
+.mini-sig-badge.pe{background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim)}
+.mini-sig-info{flex:1}
+.mini-sig-inst{color:var(--text3);font-size:8px;margin-bottom:1px}
+.mini-sig-strike{color:var(--text);font-weight:700}
+.mini-sig-time{color:var(--text3);font-size:9px}
+
+/* OI Walls panel */
+.oi-panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rx);padding:12px;margin-bottom:12px}
+.oi-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.oi-title{font-family:var(--display);font-size:14px;letter-spacing:1.5px;color:var(--text)}
+.oi-sub{font-size:9px;color:var(--text3);font-family:var(--mono)}
+.oi-wall{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;font-family:var(--mono)}
+.oi-wall:last-child{border:none}
+.oi-wall-label{color:var(--text3)}
+.oi-wall-val{font-weight:700}
+.oi-wall-val.green{color:var(--green)}
+.oi-wall-val.red{color:var(--red)}
+.oi-wall-val.gold{color:var(--gold)}
 </style>
 </head>
 <body>
@@ -383,42 +390,50 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
     </div>
   </div>
 
-  <!-- INSTRUMENT SELECTOR TABS -->
-  <div id="instrument-tabs">
-    <button data-inst="SENSEX" class="inst-tab active" onclick="switchInstrument('SENSEX')">SENSEX</button>
-    <button data-inst="NIFTY" class="inst-tab" onclick="switchInstrument('NIFTY')">NIFTY</button>
-    <button data-inst="BANKNIFTY" class="inst-tab" onclick="switchInstrument('BANKNIFTY')">BANKNIFTY</button>
-    <button data-inst="FINNIFTY" class="inst-tab" onclick="switchInstrument('FINNIFTY')">FINNIFTY</button>
-    <button data-inst="BANKEX" class="inst-tab" onclick="switchInstrument('BANKEX')">BANKEX</button>
-    <button data-inst="STOCKS" class="inst-tab" onclick="switchInstrument('STOCKS')">STOCKS</button>
+  <!-- INSTRUMENT SELECTOR -->
+  <div class="inst-bar" id="inst-bar">
+    <button class="inst-btn active" data-inst="SENSEX" onclick="selectInstrument('SENSEX')">
+      SENSEX<span class="inst-badge" id="badge-SENSEX">0</span>
+    </button>
+    <button class="inst-btn" data-inst="NIFTY" onclick="selectInstrument('NIFTY')">
+      NIFTY<span class="inst-badge" id="badge-NIFTY">0</span>
+    </button>
+    <button class="inst-btn" data-inst="BANKNIFTY" onclick="selectInstrument('BANKNIFTY')">
+      BANKNIFTY<span class="inst-badge" id="badge-BANKNIFTY">0</span>
+    </button>
+    <button class="inst-btn" data-inst="FINNIFTY" onclick="selectInstrument('FINNIFTY')">
+      FINNIFTY<span class="inst-badge" id="badge-FINNIFTY">0</span>
+    </button>
+    <button class="inst-btn" data-inst="BANKEX" onclick="selectInstrument('BANKEX')">
+      BANKEX<span class="inst-badge" id="badge-BANKEX">0</span>
+    </button>
+    <button class="inst-btn" data-inst="STOCKS" onclick="selectInstrument('STOCKS')">
+      STOCKS<span class="inst-badge" id="badge-STOCKS">0</span>
+    </button>
   </div>
 
-  <!-- TICKER BAR (per-instrument) -->
-  <div class="ticker">
+  <!-- TICKER BAR (Instrument-specific) -->
+  <div class="ticker" id="ticker-bar">
     <div>
-      <div class="sensex-label" id="ticker-label">BSE SENSEX</div>
-      <div class="sensex-price" id="sensex-price">--,---</div>
+      <div class="ticker-label" id="ticker-name">BSE SENSEX</div>
+      <div class="ticker-price" id="ticker-price">--,---</div>
     </div>
-    <div class="sensex-meta">
-      <div class="sensex-chg" id="sensex-chg">-- --</div>
-      <div class="sensex-label" id="sensex-pct">-- %</div>
+    <div class="ticker-meta">
+      <div class="ticker-chg" id="ticker-chg">-- --</div>
+      <div class="ticker-label" id="ticker-pct">-- %</div>
     </div>
     <div class="ticker-divider"></div>
     <div class="ticker-stat">
-      <div class="ts-val" id="atm-call-ltp">--</div>
+      <div class="ts-val" id="ticker-call">--</div>
       <div class="ts-label">ATM CALL</div>
     </div>
     <div class="ticker-stat">
-      <div class="ts-val" id="atm-put-ltp">--</div>
+      <div class="ts-val" id="ticker-put">--</div>
       <div class="ts-label">ATM PUT</div>
     </div>
     <div class="ticker-stat">
-      <div class="ts-val" id="exec-ce-ltp">--</div>
-      <div class="ts-label">CE ATM+1</div>
-    </div>
-    <div class="ticker-stat">
-      <div class="ts-val" id="exec-pe-ltp">--</div>
-      <div class="ts-label">PE ATM-1</div>
+      <div class="ts-val" id="ticker-strike">--</div>
+      <div class="ts-label">ATM STRIKE</div>
     </div>
     <div class="conn-dot wait" id="conn-dot" title="Connecting..."></div>
   </div>
@@ -431,23 +446,26 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
     <div class="sribbon-timer" id="sribbon-timer"></div>
   </div>
 
-  <!-- UNIFIED SIGNAL FEED -->
-  <div id="unified-signal-feed">
-    <div class="unified-hdr">
-      <span class="unified-title">ALL SIGNALS</span>
-      <span class="unified-count" id="unified-count">0 signals</span>
-    </div>
-    <div id="signal-list"></div>
-  </div>
-
   <!-- CONTENT -->
   <div class="content">
 
     <!-- ── DASHBOARD ── -->
     <div class="pane active" id="pane-dash">
       <div id="conn-banner-area"></div>
+
+      <!-- Unified Mini Signal Feed -->
+      <div class="sec-hdr">
+        <div class="sec-title">LIVE SIGNALS</div>
+        <div class="sec-line"></div>
+        <div class="sec-tag" id="sig-count-badge">0</div>
+      </div>
+      <div class="mini-sig-feed" id="mini-sig-feed">
+        <div class="sig-empty">No signals yet. Waiting for market data...</div>
+      </div>
+
       <div id="signal-area"></div>
       <div id="analysis-area"></div>
+      <div id="oi-panel-area"></div>
       <div id="inst-area"></div>
       <div id="sr-panel"></div>
       <div class="sec-hdr">
@@ -498,7 +516,7 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
       <div id="strat-area"></div>
     </div>
 
-    <!-- SIGNALS PANE -->
+    <!-- SIGNALS PANE (Unified Feed) -->
     <div class="pane" id="pane-sig">
       <div id="sig-summary-bar" style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
       <div id="sig-log"></div>
@@ -526,88 +544,59 @@ body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradie
   </div>
 
 </div>
-<script>
+
 <script>
 // ═══════════════════════════════════════════════════════════
-//  SOA TRADER FRONTEND v2.0 — Multi-Instrument
+//  SOA TRADER FRONTEND v3.0 — Multi-Instrument
 // ═══════════════════════════════════════════════════════════
 
-// ── SESSIONS ────────────────────────────────────────────────
-const SESSIONS = [
-  {id:'earlyam',  s:'00:00',e:'08:44',label:'MARKET CLOSED',  dot:'#344d6a',col:'dim',   desc:'Opens 9:15 AM IST'},
-  {id:'premarket',s:'08:45',e:'09:14',label:'PRE-MARKET',     dot:'#F0A500',col:'gold',  desc:'Preparation time'},
-  {id:'opening',  s:'09:15',e:'09:29',label:'OPENING GAP',    dot:'#ff3d5a',col:'red',   desc:'Watch only — no trade'},
-  {id:'window1',  s:'09:30',e:'10:29',label:'WINDOW 1 OPEN',  dot:'#00e5a0',col:'green', desc:'Primary entry window'},
-  {id:'midmorn',  s:'10:30',e:'11:59',label:'MID MORNING',    dot:'#4da6ff',col:'blue',  desc:'Continuation trades only'},
-  {id:'lunch',    s:'12:00',e:'13:29',label:'LUNCH LULL',     dot:'#ff3d5a',col:'red',   desc:'No trades — theta decay'},
-  {id:'window2',  s:'13:30',e:'14:29',label:'WINDOW 2 OPEN',  dot:'#00e5a0',col:'green', desc:'Second entry window'},
-  {id:'closing',  s:'14:30',e:'15:29',label:'CLOSING',        dot:'#F0A500',col:'gold',  desc:'Exit all positions'},
-  {id:'closed',   s:'15:30',e:'23:59',label:'MARKET CLOSED',  dot:'#344d6a',col:'dim',   desc:'Review & prepare'},
-];
-
-const INST = {
-  earlyam:  {col:'dim',  title:'MARKET CLOSED',          body:'Review previous trade journal.\nStudy yesterday\'s price action.\nPrepare levels for today\'s session.\n<b>Market opens at 9:15 AM IST.</b>',
-    checks:['Review yesterday\'s trade log & P&L','Study ATM option price behavior','Mark key levels for today','Check for major news events','Rest and mentally prepare']},
-  premarket:{col:'gold', title:'PRE-MARKET PREP',        body:'This window is for <b>preparation only.</b>\nNo orders. Just observation and planning.\nMark your reference levels now.',
-    checks:['Mark PDH & PDL on chart','Mark previous week high/low','Check Gift Nifty gap direction','Decide initial bias: Bullish / Bearish / Neutral','Note any major events today (Budget, RBI, Global)','Charts ready: 15 min + 5 min + 3 min']},
-  opening:  {col:'red',  title:'DO NOT TRADE',           body:'<<b>Biggest mistake: trading this window.</b>\nWide spreads. Fake moves. Gap fills.\nJust mark the Opening Range and watch.\nLet the market reveal its direction.',
-    checks:['Mark 9:15–9:30 candle high & low (Opening Range)','Note gap direction: filling or extending?','Watch VWAP position on 15-min','No orders — hands off terminal']},
-  window1:  {col:'green',title:'WINDOW 1 — TRADE NOW',  body:'<<b>Your best window of the day.</b>\nLook for Opening Range Breakout on 5-min.\nConfirm 15-min direction first.\nATM or 1-step ITM preferred.',
-    checks:['15-min trend confirmed (HH+HL or LL+LH)?','Price above VWAP → Calls | Below → Puts','5-min ORB breakout with volume spike?','ATM or ITM selected (not deep OTM)?','Entry premium noted in journal','Mental SL set at −₹20 on premium','Target set at +₹25 on premium','Max 2 trades today — make them count']},
-  midmorn:  {col:'blue', title:'MID-MORNING',            body:'First wave may be over.\n<b>If daily target hit → close terminal now.</b>\nOnly trade if trend is clearly continuing.\nVery selective. High confidence only.',
-    checks:['Daily target already hit? → STOP TRADING','15-min trend still intact?','No reversal candles or VWAP rejection?','Fresh breakout on 5-min with volume?','Not chasing — pure setup only']},
-  lunch:    {col:'red',  title:'LUNCH LULL — STOP',     body:'<<b>Most dangerous time for option buyers.</b>\nTheta decay is accelerating.\nVolume is low. Spreads widen.\nPremium loses value even if flat.\n\n<b>ZERO NEW POSITIONS.</b>',
-    checks:['Close profitable positions → book it','Do NOT enter any new positions','Update today\'s journal entries','Analyse morning trades objectively','Eat, rest, clear your mind']},
-  window2:  {col:'green',title:'WINDOW 2 — OPEN',       body:'Second opportunity of the day.\nFII/DII afternoon positioning creates moves.\n<b>Same rules as Window 1.</b>\nNote: theta is higher — be faster.',
-    checks:['Fresh 15-min trend forming?','VWAP being tested as S/R?','5-min clean breakout with volume?','Slightly reduce lot size (theta risk)?','SL: −₹20 on premium — strict, no exceptions']},
-  closing:  {col:'gold', title:'CLOSING — EXIT ALL',    body:'2:30–3:30 PM is erratic and unpredictable.\nExpiry hedge unwinding causes sharp reversals.\n<b>Exit all open positions before 3 PM.</b>\nNo new entries in this window.',
-    checks:['All positions closed before 3:00 PM?','No new options bought today?','Mark today\'s close price for tomorrow','Write final P&L in journal','Did you follow the strategy? Be honest.']},
-  closed:   {col:'dim',  title:'END OF SESSION',        body:'Trading is over for today.\n<b>Discipline in review = better tomorrow.</b>\nSpend 15 minutes on honest reflection.',
-    checks:['Log every trade: entry, exit, reason','Calculate accurate daily P&L','Note any rule violations (without excuses)','Note what worked and what did not','Prepare tomorrow\'s chart levels']},
+// ── INSTRUMENT CONFIG ───────────────────────────────────────
+const INSTRUMENTS = {
+  SENSEX:    { name: 'SENSEX',    market: 'BSE', exchange: 'BSE', token: '99919000', strikeStep: 100, lotSize: 20 },
+  NIFTY:     { name: 'NIFTY',     market: 'NSE', exchange: 'NSE', token: '99926000', strikeStep: 50,  lotSize: 25 },
+  BANKNIFTY: { name: 'BANKNIFTY', market: 'NSE', exchange: 'NSE', token: '99926009', strikeStep: 100, lotSize: 15 },
+  FINNIFTY:  { name: 'FINNIFTY',  market: 'NSE', exchange: 'NSE', token: '99926037', strikeStep: 50,  lotSize: 25 },
+  BANKEX:    { name: 'BANKEX',    market: 'BSE', exchange: 'BSE', token: '99919001', strikeStep: 100, lotSize: 10 },
+  STOCKS:    { name: 'STOCKS',    market: 'NSE', exchange: 'NSE', token: null,       strikeStep: null, lotSize: null },
 };
 
-// ── MULTI-INSTRUMENT STATE ─────────────────────────────────
-let currentInstrument = 'SENSEX';
-let instrumentData = {};
-let unifiedSignals = [];
-let checks = {};
+// ── STATE ────────────────────────────────────────────────────
 let currentTab = 'dash';
+let selectedInstrument = 'SENSEX';
 let wsConn = null;
-let cfg = { trading: { defaultLots:15, defaultTarget:25, defaultStopLoss:20, defaultMonthlyGoal:35000 } };
 let connStatus = 'waiting';
-let canSignal = true;
-let rangeData = { support: null, resistance: null };
-let analysisData = null;
-let lastSignal = null;
+let cfg = { trading: { defaultLots:15, defaultTarget:25, defaultStopLoss:20, defaultMonthlyGoal:35000 } };
+
+// Per-instrument state
+const instState = {};
+Object.keys(INSTRUMENTS).forEach(id => {
+  instState[id] = {
+    ltp: null,
+    basePrice: null,
+    optionChain: [],
+    atmStrike: null,
+    atmCall: null,
+    atmPut: null,
+    analysis: null,
+    trade: null,
+    oiWalls: null,
+    signals: [],
+    lastUpdate: 0,
+  };
+});
+
+// Unified signal history (all instruments)
 let allSignals = [];
+let signalHistoryById = new Map();
 
-function initInstrumentData(id) {
-  if (!instrumentData[id]) {
-    instrumentData[id] = {
-      price: null,
-      optionChain: [],
-      atmStrike: null,
-      atmCall: null,
-      atmPut: null,
-      analysis: null,
-      signals: [],
-      trade: null,
-      oiWalls: null,
-      sensexBase: null,
-      lastSignal: null,
-    };
-  }
-}
-['SENSEX','NIFTY','BANKNIFTY','FINNIFTY','BANKEX','STOCKS'].forEach(initInstrumentData);
-
-// ── WEBSOCKET ──────────────────────────────────────────────
+// ── WEBSOCKET ────────────────────────────────────────────────
 function connectWS() {
   try {
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     wsConn = new WebSocket(`${wsProto}//${window.location.host}`);
 
     wsConn.onopen = () => {
-      console.log('Connected to local server');
+      console.log('WS connected');
       updateConnStatus('waiting', 'Authenticating...');
       try { wsConn.send(JSON.stringify({ type: 'GET_INIT_STATE' })); } catch (_) {}
     };
@@ -617,14 +606,11 @@ function connectWS() {
         const msg = JSON.parse(e.data);
         handleMessage(msg);
       } catch (err) {
-        console.error('WS message parse error:', err);
+        console.warn('WS message parse error:', err);
       }
     };
 
-    wsConn.onerror = () => {
-      updateConnStatus('error', 'Server offline');
-    };
-
+    wsConn.onerror = () => updateConnStatus('error', 'Server offline');
     wsConn.onclose = () => {
       updateConnStatus('error', 'Reconnecting...');
       setTimeout(connectWS, 3000);
@@ -636,120 +622,123 @@ function connectWS() {
 }
 
 function handleMessage(msg) {
-  switch(msg.type) {
+  // Backward compatibility: handle legacy SENSEX messages
+  if (msg.type === 'SENSEX_LTP' && msg.ltp) {
+    updateInstrumentLTP('SENSEX', msg.ltp);
+    return;
+  }
+  if (msg.type === 'OPTION_CHAIN' && msg.data) {
+    updateInstrumentChain('SENSEX', msg.data);
+    return;
+  }
+  if (msg.type === 'INIT' && msg.snapshot) {
+    // Legacy init
+    if (msg.config) cfg = msg.config;
+    if (msg.snapshot.oi) instState.SENSEX.oiWalls = msg.snapshot.oi;
+    if (msg.snapshot.trade) instState.SENSEX.trade = msg.snapshot.trade;
+    if (msg.pastSignals) {
+      msg.pastSignals.forEach(sig => addSignal({ ...sig, instrument: 'SENSEX' }));
+    }
+    updateConnStatus('live', 'Angel One Live');
+    renderAll();
+    return;
+  }
+
+  // New multi-instrument protocol
+  switch (msg.type) {
     case 'INIT_STATE':
       if (msg.data) {
         if (msg.data.config) cfg = msg.data.config;
         if (msg.data.instruments) {
-          for (const [instId, snap] of Object.entries(msg.data.instruments)) {
-            initInstrumentData(instId);
-            if (snap.price) instrumentData[instId].price = snap.price;
-            if (snap.atmStrike) instrumentData[instId].atmStrike = snap.atmStrike;
-            if (snap.analysis) instrumentData[instId].analysis = snap.analysis;
-            if (snap.signals) instrumentData[instId].signals = snap.signals;
-            if (snap.trade) instrumentData[instId].trade = snap.trade;
-            if (snap.oi) instrumentData[instId].oiWalls = snap.oi;
-          }
+          Object.entries(msg.data.instruments).forEach(([id, data]) => {
+            if (instState[id]) {
+              instState[id].ltp = data.price || data.lastSensex || null;
+              instState[id].analysis = data;
+              instState[id].trade = data.trade || null;
+              instState[id].oiWalls = data.oi || null;
+              if (data.atmStrike) instState[id].atmStrike = data.atmStrike;
+            }
+          });
         }
         updateConnStatus('live', 'Angel One Live');
-        if (currentTab === 'dash') { renderAnalysis(); renderSRPanel(); }
-        if (currentTab === 'mkt') renderMarket();
+        renderAll();
       }
-      break;
-
-    case 'SIGNAL':
-      if (msg.data && msg.instrument) {
-        initInstrumentData(msg.instrument);
-        instrumentData[msg.instrument].lastSignal = msg.data;
-        instrumentData[msg.instrument].signals.push(msg.data);
-        addSignalToUnifiedFeed(msg.data, msg.instrument);
-        playSignalSound(msg.data.type);
-        if (msg.instrument !== currentInstrument) {
-          flashInstrumentTab(msg.instrument);
-        }
-        if (msg.instrument === currentInstrument) {
-          updateMainDashboard(msg.data);
-        }
-        if (currentTab === 'sig') renderSignalsTab();
-      }
-      break;
-
-    case 'ANALYSIS':
-      if (msg.data && msg.instrument) {
-        initInstrumentData(msg.instrument);
-        instrumentData[msg.instrument].analysis = msg.data;
-        if (msg.instrument === currentInstrument) {
-          updateAnalysisDisplay(msg.data);
-        }
-        updateBackgroundState(msg.instrument, msg.data);
-      }
-      break;
-
-    case 'TRADE_OPEN':
-      if (msg.data && msg.instrument) {
-        initInstrumentData(msg.instrument);
-        instrumentData[msg.instrument].trade = msg.data;
-        if (msg.instrument === currentInstrument) {
-          renderAnalysis();
-        }
-      }
-      break;
-
-    case 'TRADE_CLOSED':
-      if (msg.data && msg.instrument) {
-        initInstrumentData(msg.instrument);
-        instrumentData[msg.instrument].trade = msg.data;
-        if (msg.instrument === currentInstrument) {
-          renderAnalysis();
-          renderHomeSignal();
-        }
-        if (currentTab === 'sig') renderSignalsTab();
-      }
-      break;
-
-    case 'SETUP_ABORT':
-      console.log('Setup abort:', msg.instrument, msg.data);
-      break;
-
-    case 'SENSEX_LTP':
-      if (msg.ltp) {
-        initInstrumentData('SENSEX');
-        instrumentData['SENSEX'].price = msg.ltp;
-        if (!instrumentData['SENSEX'].sensexBase) instrumentData['SENSEX'].sensexBase = msg.ltp;
-        if (currentInstrument === 'SENSEX') {
-          updateLTPDisplay(msg.ltp);
-        }
-      }
-      break;
-
-    case 'OPTION_CHAIN':
-      if (msg.data) {
-        initInstrumentData(currentInstrument);
-        instrumentData[currentInstrument].optionChain = msg.data;
-        if (currentTab === 'mkt') renderMarket();
-      }
-      break;
-
-    case 'OI_WALLS':
-      if (msg.data) {
-        initInstrumentData(currentInstrument);
-        instrumentData[currentInstrument].oiWalls = msg.data;
-        if (currentTab === 'dash') renderSRPanel();
-      }
-      break;
-
-    case 'TRADE_STATUS':
-      canSignal = msg.canOpenNewSignal;
-      break;
-
-    case 'RANGE_UPDATE':
-      if (msg.resistance != null) rangeData.resistance = msg.resistance;
-      if (msg.support != null) rangeData.support = msg.support;
-      renderSRPanel();
       break;
 
     case 'AUTH_STATUS':
       updateConnStatus(msg.status === 'connected' ? 'live' : 'error', msg.message);
+      break;
+
+    case 'TICK':
+    case 'SENSEX_LTP':
+      if (msg.instrument && msg.data && msg.data.ltp) {
+        updateInstrumentLTP(msg.instrument, msg.data.ltp);
+      } else if (msg.ltp) {
+        updateInstrumentLTP('SENSEX', msg.ltp);
+      }
+      break;
+
+    case 'OPTION_CHAIN':
+      if (msg.instrument && msg.data) {
+        updateInstrumentChain(msg.instrument, msg.data);
+      }
+      break;
+
+    case 'SIGNAL':
+      if (msg.instrument && msg.data) {
+        addSignal({ ...msg.data, instrument: msg.instrument, market: msg.market || INSTRUMENTS[msg.instrument]?.market || 'NSE' });
+        flashInstrumentTab(msg.instrument);
+        playSignalSound(msg.data.type);
+        if (navigator.vibrate) navigator.vibrate(200);
+      }
+      break;
+
+    case 'TRADE_OPEN':
+      if (msg.instrument && msg.data) {
+        instState[msg.instrument].trade = msg.data;
+        if (msg.data.signalId && signalHistoryById.has(msg.data.signalId)) {
+          const sig = signalHistoryById.get(msg.data.signalId);
+          sig.tradeStatus = 'OPEN';
+          signalHistoryById.set(sig.id, sig);
+        }
+        renderAll();
+      }
+      break;
+
+    case 'TRADE_CLOSED':
+      if (msg.instrument && msg.data) {
+        instState[msg.instrument].trade = null;
+        if (msg.data.signalId && signalHistoryById.has(msg.data.signalId)) {
+          const sig = signalHistoryById.get(msg.data.signalId);
+          sig.tradeStatus = msg.data.status;
+          sig.pnl = msg.data.pnl;
+          sig.exitPremium = msg.data.exitPremium;
+          sig.exitReason = msg.data.exitReason;
+          signalHistoryById.set(sig.id, sig);
+        }
+        renderAll();
+      }
+      break;
+
+    case 'ANALYSIS':
+      if (msg.instrument && msg.data) {
+        instState[msg.instrument].analysis = msg.data;
+        instState[msg.instrument].ltp = msg.data.price || instState[msg.instrument].ltp;
+        instState[msg.instrument].oiWalls = msg.data.oi || instState[msg.instrument].oiWalls;
+        if (msg.data.atmStrike) instState[msg.instrument].atmStrike = msg.data.atmStrike;
+        renderAll();
+      }
+      break;
+
+    case 'OI_WALLS':
+      if (msg.instrument && msg.data) {
+        instState[msg.instrument].oiWalls = msg.data;
+        if (currentTab === 'dash') renderOIWalls();
+      }
+      break;
+
+    case 'RANGE_UPDATE':
+      // Handled per-instrument in analysis
       break;
 
     case 'WS_ERROR':
@@ -758,338 +747,327 @@ function handleMessage(msg) {
   }
 }
 
-// ── INSTRUMENT SWITCHING ───────────────────────────────────
-function switchInstrument(inst) {
-  console.log('Switching instrument to:', inst);
-  currentInstrument = inst;
+function updateInstrumentLTP(instrumentId, ltp) {
+  if (!instState[instrumentId]) return;
+  const st = instState[instrumentId];
+  st.ltp = ltp;
+  if (!st.basePrice) st.basePrice = ltp;
+  st.lastUpdate = Date.now();
 
-  // Update tab styles
-  document.querySelectorAll('.inst-tab').forEach(t => {
-    t.classList.remove('active');
-    t.classList.remove('flash');
-  });
-  const btn = document.querySelector(`.inst-tab[data-inst="${inst}"]`);
-  if (btn) {
-    btn.classList.add('active');
-    console.log('Found and activated tab for:', inst);
-  } else {
-    console.error('Tab not found for instrument:', inst);
-  }
+  // Calculate ATM strike
+  const step = INSTRUMENTS[instrumentId]?.strikeStep || 100;
+  st.atmStrike = Math.round(ltp / step) * step;
 
-  // Update ticker label
-  const labelMap = {
-    SENSEX: 'BSE SENSEX',
-    NIFTY: 'NSE NIFTY',
-    BANKNIFTY: 'NSE BANKNIFTY',
-    FINNIFTY: 'NSE FINNIFTY',
-    BANKEX: 'BSE BANKEX',
-    STOCKS: 'STOCK OPTIONS',
-  };
-  const labelEl = document.getElementById('ticker-label');
-  if (labelEl) labelEl.textContent = labelMap[inst] || inst;
-
-  // Refresh displays with current instrument data
-  const data = instrumentData[inst];
-  if (data) {
-    if (data.price) updateLTPDisplay(data.price);
-    if (currentTab === 'dash') {
-      renderAnalysis();
-      renderSRPanel();
-      if (data.lastSignal) renderSignal(data.lastSignal);
-    }
+  if (currentTab === 'dash' || currentTab === 'mkt') {
+    renderTicker();
     if (currentTab === 'mkt') renderMarket();
   }
 }
 
-function flashInstrumentTab(instrument) {
-  const btn = document.querySelector(`.inst-tab[data-inst="${instrument}"]`);
+function updateInstrumentChain(instrumentId, data) {
+  if (!instState[instrumentId]) return;
+  instState[instrumentId].optionChain = data;
+
+  // Extract ATM premiums
+  if (Array.isArray(data) && instState[instrumentId].atmStrike) {
+    const atm = data.find(r => r.strikePrice == instState[instrumentId].atmStrike);
+    if (atm) {
+      instState[instrumentId].atmCall = atm.CE?.ltp;
+      instState[instrumentId].atmPut = atm.PE?.ltp;
+    }
+  }
+
+  if (currentTab === 'mkt') renderMarket();
+  if (currentTab === 'dash') renderTicker();
+}
+
+function addSignal(sig) {
+  if (!sig || !sig.id) return;
+
+  const existing = signalHistoryById.get(sig.id);
+  const merged = existing ? { ...existing, ...sig } : sig;
+  signalHistoryById.set(sig.id, merged);
+
+  const idx = allSignals.findIndex(s => s.id === sig.id);
+  if (idx >= 0) allSignals[idx] = merged;
+  else allSignals.unshift(merged);
+
+  // Also add to instrument-specific list
+  if (sig.instrument && instState[sig.instrument]) {
+    const instSigs = instState[sig.instrument].signals;
+    const instIdx = instSigs.findIndex(s => s.id === sig.id);
+    if (instIdx >= 0) instSigs[instIdx] = merged;
+    else instSigs.unshift(merged);
+  }
+
+  updateSigBadge();
+  if (currentTab === 'dash') renderMiniSigFeed();
+  if (currentTab === 'sig') renderSignalsTab();
+}
+
+function flashInstrumentTab(instrumentId) {
+  if (instrumentId === selectedInstrument) return;
+  const btn = document.querySelector(`.inst-btn[data-inst="${instrumentId}"]`);
   if (btn) {
     btn.classList.add('flash');
+    const badge = btn.querySelector('.inst-badge');
+    if (badge) {
+      const count = parseInt(badge.textContent) || 0;
+      badge.textContent = count + 1;
+      badge.classList.add('show');
+    }
     setTimeout(() => btn.classList.remove('flash'), 2000);
   }
 }
 
-function updateBackgroundState(instrument, data) {
-  initInstrumentData(instrument);
-  if (data.oi) instrumentData[instrument].oiWalls = data.oi;
-  if (data.trade) instrumentData[instrument].trade = data.trade;
-}
+function selectInstrument(id) {
+  selectedInstrument = id;
+  document.querySelectorAll('.inst-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.inst-btn[data-inst="${id}"]`)?.classList.add('active');
 
-function updateMainDashboard(signal) {
-  if (currentTab === 'dash') {
-    renderSignal(signal);
+  // Clear badge
+  const badge = document.getElementById(`badge-${id}`);
+  if (badge) {
+    badge.textContent = '0';
+    badge.classList.remove('show');
   }
-}
 
-function updateAnalysisDisplay(data) {
+  renderTicker();
   if (currentTab === 'dash') {
-    analysisData = data;
     renderAnalysis();
-    renderSRPanel();
+    renderOIWalls();
+    renderTradeTracker();
+  }
+  if (currentTab === 'mkt') renderMarket();
+}
+
+// ── AUDIO ALERT ──────────────────────────────────────────────
+function playSignalSound(type) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const freqs = type === 'BUY_CE' ? [523, 659, 784] : [784, 659, 523];
+    freqs.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
+      osc.start(ctx.currentTime + i * 0.15);
+      osc.stop(ctx.currentTime + i * 0.15 + 0.35);
+    });
+  } catch(e) {}
+}
+
+// ── RENDER FUNCTIONS ─────────────────────────────────────────
+function renderAll() {
+  renderTicker();
+  if (currentTab === 'dash') {
+    renderAnalysis();
+    renderOIWalls();
+    renderTradeTracker();
+    renderMiniSigFeed();
+  }
+  if (currentTab === 'mkt') renderMarket();
+  if (currentTab === 'sig') renderSignalsTab();
+}
+
+function renderTicker() {
+  const st = instState[selectedInstrument];
+  if (!st) return;
+
+  const instCfg = INSTRUMENTS[selectedInstrument];
+  document.getElementById('ticker-name').textContent = `${instCfg.market} ${instCfg.name}`;
+
+  if (st.ltp) {
+    document.getElementById('ticker-price').textContent = st.ltp.toLocaleString('en-IN', {minimumFractionDigits:2});
+    const chg = st.ltp - (st.basePrice || st.ltp);
+    const pct = st.basePrice ? (chg / st.basePrice * 100).toFixed(2) : '0.00';
+    const up = chg >= 0;
+    const chgEl = document.getElementById('ticker-chg');
+    chgEl.textContent = `${up?'+':''}${chg.toFixed(2)}`;
+    chgEl.style.color = up ? 'var(--green)' : 'var(--red)';
+    document.getElementById('ticker-pct').textContent = `${up?'+':''}${pct}%`;
+
+    document.getElementById('ticker-call').textContent = st.atmCall ? `₹${st.atmCall}` : '--';
+    document.getElementById('ticker-put').textContent = st.atmPut ? `₹${st.atmPut}` : '--';
+    document.getElementById('ticker-strike').textContent = st.atmStrike || '--';
   }
 }
 
-// ── UNIFIED SIGNAL FEED ────────────────────────────────────
-function addSignalToUnifiedFeed(signal, instrument) {
-  unifiedSignals.unshift({ ...signal, instrument, receivedAt: Date.now() });
-  if (unifiedSignals.length > 50) unifiedSignals.pop();
-  renderUnifiedFeed();
-  if (navigator.vibrate) navigator.vibrate(200);
-}
-
-function renderUnifiedFeed() {
-  const list = document.getElementById('signal-list');
-  const count = document.getElementById('unified-count');
-  if (!list) return;
-
-  count.textContent = `${unifiedSignals.length} signals`;
-
-  if (unifiedSignals.length === 0) {
-    list.innerHTML = '<div style="font-size:10px;color:var(--text3);font-family:var(--mono);padding:4px 0">No signals yet</div>';
+function renderAnalysis() {
+  const st = instState[selectedInstrument];
+  if (!st || !st.analysis) {
+    document.getElementById('analysis-area').innerHTML = '';
     return;
   }
 
-  list.innerHTML = unifiedSignals.slice(0, 10).map(s => {
-    const isCE = s.type === 'BUY_CE';
-    const typeClass = isCE ? 'buy-ce' : 'buy-pe';
-    const typeText = isCE ? 'BUY CE' : 'BUY PE';
+  const { indicators: ind, state, trade, signals } = st.analysis;
+  if (!ind) {
+    document.getElementById('analysis-area').innerHTML = '';
+    return;
+  }
+
+  const stateColors = {
+    TRENDING_BULLISH: 'sp-bull', BREAKOUT: 'sp-bull',
+    TRENDING_BEARISH: 'sp-bear',
+    SIDEWAYS: 'sp-side', UNKNOWN: 'sp-side',
+    VOLATILE: 'sp-vol', REVERSAL: 'sp-vol',
+  };
+  const stateEmoji = {
+    TRENDING_BULLISH: '▲', TRENDING_BEARISH: '▼',
+    SIDEWAYS: '─', VOLATILE: '⚡', BREAKOUT: '🚀', REVERSAL: '↩', UNKNOWN: '?'
+  };
+
+  const stateClass = stateColors[state?.state] || 'sp-side';
+  const stateIco = stateEmoji[state?.state] || '?';
+
+  document.getElementById('analysis-area').innerHTML = `
+    <div class="sec-hdr"><div class="sec-title">LIVE ANALYSIS — ${selectedInstrument}</div><div class="sec-line"></div>
+      <div class="sec-tag">Signals: ${signals?.length || 0}/${INSTRUMENTS[selectedInstrument]?.maxSignals || 5}</div>
+    </div>
+    <div class="state-pill ${stateClass}">
+      ${stateIco} ${state?.state?.replace('_',' ') || 'UNKNOWN'}
+    </div>
+    <div class="analysis-grid">
+      <div class="ana-box"><div class="ana-label">EMA 5</div><div class="ana-val">${ind.ema5 ? ind.ema5.toLocaleString('en-IN') : '--'}</div></div>
+      <div class="ana-box"><div class="ana-label">EMA 9</div><div class="ana-val">${ind.ema9 ? ind.ema9.toLocaleString('en-IN') : '--'}</div></div>
+      <div class="ana-box"><div class="ana-label">VWAP</div><div class="ana-val ${ind.bias?.aboveVWAP ? 'bull' : 'bear'}">${ind.vwap ? ind.vwap.toLocaleString('en-IN') : '--'}</div></div>
+      <div class="ana-box"><div class="ana-label">BB WIDTH</div><div class="ana-val ${ind.bb?.squeeze ? 'bear' : 'bull'}">${ind.bb?.bw ? ind.bb.bw.toFixed(2)+'%' : '--'}</div></div>
+      <div class="ana-box"><div class="ana-label">BIAS</div><div class="ana-val ${ind.bias?.bullishEMA ? 'bull' : ind.bias?.bearishEMA ? 'bear' : 'neu'}">${ind.bias?.bullishEMA ? 'BULLISH' : ind.bias?.bearishEMA ? 'BEARISH' : 'NEUTRAL'}</div></div>
+      <div class="ana-box"><div class="ana-label">BB SQUEEZE</div><div class="ana-val ${ind.bb?.squeeze ? 'bear' : 'bull'}">${ind.bb?.squeeze ? 'YES ⚠️' : 'NO ✓'}</div></div>
+    </div>
+  `;
+
+  renderTradeTracker();
+}
+
+function renderTradeTracker() {
+  const st = instState[selectedInstrument];
+  if (!st || !st.trade) {
+    document.getElementById('signal-area').innerHTML = '';
+    return;
+  }
+
+  const trade = st.trade;
+  const isCE = trade.type === 'BUY_CE';
+
+  document.getElementById('signal-area').innerHTML = `
+    <div class="trade-box">
+      <div class="trade-hdr">
+        <span class="trade-hdr-label">ACTIVE TRADE — ${selectedInstrument}</span>
+        <span class="trade-status" style="color:${trade.dailyPnL >= 0 ? 'var(--green)' : 'var(--red)'}">Daily P&L: ₹${trade.dailyPnL || 0}</span>
+      </div>
+      ${trade.activeTrade ? `
+        <div class="trade-row"><span class="trade-key">Type</span><span class="trade-val" style="color:${isCE?'var(--green)':'var(--red)'}">${trade.activeTrade.type}</span></div>
+        <div class="trade-row"><span class="trade-key">Entry Premium</span><span class="trade-val">₹${trade.activeTrade.entryPremium}</span></div>
+        <div class="trade-row"><span class="trade-key">Current Premium</span><span class="trade-val">₹${trade.activeTrade.currentPremium}</span></div>
+        <div class="trade-row"><span class="trade-key">Target</span><span class="trade-val" style="color:var(--green)">₹${trade.activeTrade.target}</span></div>
+        <div class="trade-row"><span class="trade-key">Stop Loss</span><span class="trade-val" style="color:var(--red)">₹${trade.activeTrade.trailing ? trade.activeTrade.trailSL + ' (Trail)' : trade.activeTrade.sl}</span></div>
+        <div class="trade-row"><span class="trade-key">Unrealised P&L</span><span class="trade-val" style="color:${(trade.activeTrade.unrealisedPnL||0)>=0?'var(--green)':'var(--red)'}">₹${trade.activeTrade.unrealisedPnL || 0}</span></div>
+      ` : '<div style="padding:14px;text-align:center;font-size:11px;color:var(--text3)">No active trade</div>'}
+      <div class="trade-row"><span class="trade-key">Today: W/L</span><span class="trade-val">${trade.wins || 0}W / ${trade.losses || 0}L</span></div>
+    </div>
+  `;
+}
+
+function renderOIWalls() {
+  const st = instState[selectedInstrument];
+  if (!st || !st.oiWalls) {
+    document.getElementById('oi-panel-area').innerHTML = '';
+    return;
+  }
+
+  const oi = st.oiWalls;
+  const existing = oi.existingSR || {};
+  const buildup = oi.buildupSR || {};
+
+  document.getElementById('oi-panel-area').innerHTML = `
+    <div class="oi-panel">
+      <div class="oi-hdr">
+        <div class="oi-title">OI WALLS — ${selectedInstrument}</div>
+        <div class="oi-sub">PCR: ${oi.pcr || '--'} | ${oi.pcrBias || 'NEUTRAL'}</div>
+      </div>
+      <div class="oi-wall">
+        <span class="oi-wall-label">Support (Max OI)</span>
+        <span class="oi-wall-val green">${existing.supportMaxOI ? existing.supportMaxOI.toLocaleString('en-IN') : '--'}</span>
+      </div>
+      <div class="oi-wall">
+        <span class="oi-wall-label">Resistance (Max OI)</span>
+        <span class="oi-wall-val red">${existing.resistanceMaxOI ? existing.resistanceMaxOI.toLocaleString('en-IN') : '--'}</span>
+      </div>
+      <div class="oi-wall">
+        <span class="oi-wall-label">Nearest Support</span>
+        <span class="oi-wall-val green">${existing.supportNearest ? existing.supportNearest.toLocaleString('en-IN') : '--'}</span>
+      </div>
+      <div class="oi-wall">
+        <span class="oi-wall-label">Nearest Resistance</span>
+        <span class="oi-wall-val red">${existing.resistanceNearest ? existing.resistanceNearest.toLocaleString('en-IN') : '--'}</span>
+      </div>
+      ${buildup.supportBuild ? `
+      <div class="oi-wall">
+        <span class="oi-wall-label">Buildup Support</span>
+        <span class="oi-wall-val gold">${buildup.supportBuild.strike} (+${buildup.supportBuild.delta || 0})</span>
+      </div>` : ''}
+      ${buildup.resistanceBuild ? `
+      <div class="oi-wall">
+        <span class="oi-wall-label">Buildup Resistance</span>
+        <span class="oi-wall-val gold">${buildup.resistanceBuild.strike} (+${buildup.resistanceBuild.delta || 0})</span>
+      </div>` : ''}
+      ${oi.isPinned ? `<div style="margin-top:6px;font-size:10px;font-family:var(--mono);color:var(--gold)">⚠ PIN DETECTED</div>` : ''}
+    </div>
+  `;
+}
+
+function renderMiniSigFeed() {
+  const feed = document.getElementById('mini-sig-feed');
+  if (!feed) return;
+
+  const recent = allSignals.slice(0, 5);
+  if (recent.length === 0) {
+    feed.innerHTML = '<div class="sig-empty">No signals yet. Waiting for market data...</div>';
+    return;
+  }
+
+  feed.innerHTML = recent.map(sig => {
+    const isCE = sig.type === 'BUY_CE';
+    const inst = sig.instrument || 'SENSEX';
+    const market = sig.market || INSTRUMENTS[inst]?.market || 'NSE';
     return `
-      <div class="signal-card">
-        <span class="inst-badge">${s.instrument}</span>
-        <span class="type-badge ${typeClass}">${typeText}</span>
-        <span class="conf">${s.confidence}%</span>
-        <span class="strike">${s.strike || s.indicators?.price || ''}</span>
-        <span class="prem">${s.entryPremium ? '₹'+s.entryPremium : ''}</span>
-        <span class="time">${s.timeStr || ''}</span>
+      <div class="mini-sig-item" onclick="selectInstrument('${inst}');switchTab('sig')">
+        <span class="mini-sig-badge ${isCE ? 'ce' : 'pe'}">${isCE ? 'CE' : 'PE'}</span>
+        <div class="mini-sig-info">
+          <div class="mini-sig-inst">${inst} <span style="opacity:0.6">${market}</span></div>
+          <div class="mini-sig-strike">${sig.strike || ''} @ ₹${sig.entryPremium || sig.price || '--'}</div>
+        </div>
+        <div class="mini-sig-time">${sig.timeStr || ''}<br><span style="color:${sig.confidence >= 85 ? 'var(--green)' : sig.confidence >= 70 ? 'var(--amber)' : 'var(--red)'}">${sig.confidence}%</span></div>
       </div>
     `;
   }).join('');
 }
 
-// ── CLOCK & SESSION ──────────────────────────────────────────
-function getIST() {
-  return new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
-}
-function pad(n) { return String(n).padStart(2,'0'); }
-function getSession(ist) {
-  const t = ist.getHours()*100 + ist.getMinutes();
-  for (const s of SESSIONS) {
-    const [sh,sm] = s.s.split(':').map(Number);
-    const [eh,em] = s.e.split(':').map(Number);
-    if (t >= sh*100+sm && t <= eh*100+em) return s;
-  }
-  return SESSIONS[0];
-}
-
-let lastSessionId = null;
-function updateClock() {
-  const ist = getIST();
-  const h=ist.getHours(), m=ist.getMinutes(), s=ist.getSeconds();
-  const clockEl = document.getElementById('clock');
-  const dateEl = document.getElementById('datestr');
-  if (clockEl) clockEl.textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
-  const DAYS=['SUN','MON','TUE','WED','THU','FRI','SAT'];
-  const MTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
-  if (dateEl) dateEl.textContent = `${DAYS[ist.getDay()]} ${ist.getDate()} ${MTHS[ist.getMonth()]}`;
-
-  const sess = getSession(ist);
-  const sribbon = document.getElementById('sribbon');
-  if (sribbon) sribbon.style.background = sess.dot + '18';
-  const dotEl = document.getElementById('sribbon-dot');
-  if (dotEl) dotEl.style.background = sess.dot;
-  const labelEl = document.getElementById('sribbon-label');
-  if (labelEl) {
-    labelEl.style.color = sess.dot;
-    labelEl.textContent = sess.label;
-  }
-  const descEl = document.getElementById('sribbon-desc');
-  if (descEl) descEl.textContent = sess.desc;
-
-  const idx = SESSIONS.findIndex(x => x.id === sess.id);
-  const next = SESSIONS[idx+1];
-  const timerEl = document.getElementById('sribbon-timer');
-  if (next && timerEl) {
-    const [nh,nm] = next.s.split(':').map(Number);
-    const nowMins = h*60+m;
-    const nextMins = nh*60+nm;
-    const diff = nextMins - nowMins;
-    if (diff > 0 && diff <= 120) {
-      timerEl.textContent = `${diff}m → ${next.label}`;
-    } else {
-      timerEl.textContent = '';
-    }
-  }
-
-  if (currentTab === 'dash' && sess.id !== lastSessionId) {
-    lastSessionId = sess.id;
-    renderDash(sess, ist);
-  }
-  if (currentTab === 'dash' && sess.id === lastSessionId && s === 0) {
-    renderDash(sess, ist);
-  }
-}
-
-// ── DASHBOARD ───────────────────────────────────────────────
-function renderDash(sess, ist) {
-  const inst = INST[sess.id] || INST.closed;
-  const key = sess.id;
-  if (!checks[key]) checks[key] = inst.checks.map(() => false);
-
-  const isTradeable = sess.id === 'window1' || sess.id === 'window2';
-  const isAvoid     = sess.id === 'lunch' || sess.id === 'opening';
-
-  const colorMap = {gold:'var(--gold)',green:'var(--green)',red:'var(--red)',blue:'var(--blue)',dim:'var(--text2)'};
-
-  const instArea = document.getElementById('inst-area');
-  if (instArea) {
-    instArea.innerHTML = `
-      <div class="inst-card ${inst.col}" style="margin-bottom:12px">
-        <div class="inst-title" style="color:${colorMap[inst.col]}">${inst.title}</div>
-        <div class="inst-body">${inst.body.replace(/\n/g,'<<br>').replace(/<<b>/g,'<<b style="color:var(--text)">') }</div>
-      </div>
-      ${isTradeable ? `
-        <div class="signal go">
-          <span class="signal-icon">✦</span>
-          <div><div class="signal-text" style="color:var(--green)">ACTIVE TRADING WINDOW</div>
-          <div class="signal-sub">Entry signals valid — follow the 3-step checklist</div></div>
-        </div>` : ''}
-      ${isAvoid ? `
-        <div class="signal no">
-          <span class="signal-icon">✕</span>
-          <div><div class="signal-text" style="color:var(--red)">NO TRADE ZONE</div>
-          <div class="signal-sub">${sess.desc}</div></div>
-        </div>` : ''}`;
-  }
-
-  const done = checks[key].filter(Boolean).length;
-  const total = inst.checks.length;
-  const pct = total ? Math.round(done/total*100) : 0;
-  const chkCount = document.getElementById('chk-count');
-  if (chkCount) chkCount.textContent = `${done}/${total}`;
-  const chkFill = document.getElementById('chk-fill');
-  if (chkFill) chkFill.style.width = pct + '%';
-
-  const chkArea = document.getElementById('chk-area');
-  if (chkArea) {
-    chkArea.innerHTML = inst.checks.map((c,i) => `
-      <div class="chk-item" onclick="toggleCheck('${key}',${i})">
-        <div class="chk-box ${checks[key][i]?'done':''}">${checks[key][i]?'✓':''}</div>
-        <div class="chk-text ${checks[key][i]?'done':''}">${c}</div>
-      </div>`).join('');
-  }
-}
-
-function toggleCheck(key, i) {
-  if (!checks[key]) return;
-  checks[key][i] = !checks[key][i];
-  const ist = getIST();
-  const sess = getSession(ist);
-  if (sess.id === key) {
-    const done = checks[key].filter(Boolean).length;
-    const total = INST[key].checks.length;
-    const pct = total ? Math.round(done/total*100) : 0;
-    const chkCount = document.getElementById('chk-count');
-    if (chkCount) chkCount.textContent = `${done}/${total}`;
-    const chkFill = document.getElementById('chk-fill');
-    if (chkFill) chkFill.style.width = pct + '%';
-    renderDash(sess, ist);
-  }
-}
-
-// ── TICKER / LTP ────────────────────────────────────────────
-function updateLTPDisplay(ltp) {
-  const data = instrumentData[currentInstrument];
-  if (!data) return;
-  if (!data.sensexBase) data.sensexBase = ltp;
-  const chg = ltp - data.sensexBase;
-  const pct = (chg / data.sensexBase * 100).toFixed(2);
-  const up = chg >= 0;
-
-  const priceEl = document.getElementById('sensex-price');
-  if (priceEl) priceEl.textContent = ltp.toLocaleString('en-IN', {minimumFractionDigits:2});
-  const chgEl = document.getElementById('sensex-chg');
-  if (chgEl) {
-    chgEl.textContent = `${up?'+':''}${chg.toFixed(2)}`;
-    chgEl.style.color = up ? 'var(--green)' : 'var(--red)';
-  }
-  const pctEl = document.getElementById('sensex-pct');
-  if (pctEl) pctEl.textContent = `${up?'+':''}${pct}%`;
-
-  data.price = ltp;
-  data.atmStrike = Math.round(ltp / 100) * 100;
-}
-
-function updateOptionChain(data) {
-  initInstrumentData(currentInstrument);
-  instrumentData[currentInstrument].optionChain = data;
-  if (currentTab === 'mkt') renderMarket();
-
-  if (Array.isArray(data)) {
-    const dataObj = instrumentData[currentInstrument];
-    const atm = data.find(r => r.strikePrice == dataObj.atmStrike);
-    if (atm) {
-      dataObj.atmCall = atm.CE?.ltp;
-      dataObj.atmPut = atm.PE?.ltp;
-      const callEl = document.getElementById('atm-call-ltp');
-      const putEl = document.getElementById('atm-put-ltp');
-      if (callEl && dataObj.atmCall) { callEl.textContent = `₹${dataObj.atmCall}`; callEl.style.color = 'var(--green)'; }
-      if (putEl && dataObj.atmPut) { putEl.textContent = `₹${dataObj.atmPut}`; putEl.style.color = 'var(--red)'; }
-    }
-  }
-}
-
-function updateExecPremiums(data) {
-  const ceEl = document.getElementById('exec-ce-ltp');
-  const peEl = document.getElementById('exec-pe-ltp');
-  const cePrem = data?.ce?.premium;
-  const pePrem = data?.pe?.premium;
-  if (ceEl) { ceEl.textContent = (typeof cePrem === 'number') ? `₹${cePrem}` : '--'; ceEl.style.color = 'var(--green)'; }
-  if (peEl) { peEl.textContent = (typeof pePrem === 'number') ? `₹${pePrem}` : '--'; peEl.style.color = 'var(--red)'; }
-}
-
-function updateConnStatus(status, msg) {
-  connStatus = status;
-  const dot = document.getElementById('conn-dot');
-  if (dot) dot.className = `conn-dot ${status === 'live' ? 'live' : status === 'error' ? 'err' : 'wait'}`;
-
-  const bannerArea = document.getElementById('conn-banner-area');
-  if (bannerArea && currentTab === 'dash') {
-    if (status === 'live') {
-      bannerArea.innerHTML = `<div class="conn-banner live">● ANGEL ONE LIVE — ${msg}</div>`;
-      setTimeout(() => { bannerArea.innerHTML = ''; }, 3000);
-    } else if (status === 'error') {
-      bannerArea.innerHTML = `<div class="conn-banner">⚠ ${msg} — Run: node server.js</div>`;
-    } else {
-      bannerArea.innerHTML = `<div class="conn-banner waiting">◌ ${msg}</div>`;
-    }
-  }
-}
-
-// ── MARKET ───────────────────────────────────────────────────
 function renderMarket() {
-  const data = instrumentData[currentInstrument];
+  const st = instState[selectedInstrument];
   const target = cfg.trading?.defaultTarget || 25;
   const sl = cfg.trading?.defaultStopLoss || 20;
-  const atm = data?.atmStrike || '--';
-  const ist = getIST();
-  const sess = getSession(ist);
-  const isLive = !!data?.price;
-  const chain = data?.optionChain || [];
+  const atm = st?.atmStrike || '--';
 
   let chainHTML = '';
-  if (chain.length > 0 && data?.atmStrike) {
-    const atmIdx = chain.findIndex(r => r.strikePrice >= data.atmStrike);
+  if (st?.optionChain?.length > 0 && st.atmStrike) {
+    const atmIdx = st.optionChain.findIndex(r => r.strikePrice >= st.atmStrike);
     const start = Math.max(0, atmIdx - 3);
-    const end = Math.min(chain.length, atmIdx + 4);
-    const slice = chain.slice(start, end);
+    const end = Math.min(st.optionChain.length, atmIdx + 4);
+    const slice = st.optionChain.slice(start, end);
 
     chainHTML = `
-      <div class="sec-hdr"><div class="sec-title">OPTION CHAIN</div><div class="sec-line"></div><div class="sec-tag">${currentInstrument}</div></div>
+      <div class="sec-hdr"><div class="sec-title">OPTION CHAIN — ${selectedInstrument}</div><div class="sec-line"></div><div class="sec-tag">${st.optionChain[0]?.CE?.expiry || 'WEEKLY'}</div></div>
       <div class="chain-wrap">
         <div class="chain-hdr"><span>CALL ₹ / TGT / SL</span><span>STRIKE</span><span>PUT ₹ / TGT / SL</span></div>
         ${slice.map(r => {
-          const isAtm = r.strikePrice == data.atmStrike;
-          const isItm = r.strikePrice < data.atmStrike;
+          const isAtm = r.strikePrice == st.atmStrike;
+          const isItm = r.strikePrice < st.atmStrike;
           const type = isAtm ? 'ATM' : isItm ? 'ITM' : 'OTM';
           const cls = isAtm ? 'sb-atm' : isItm ? 'sb-itm' : 'sb-otm';
           const cp = r.CE?.ltp || '--';
@@ -1115,77 +1093,362 @@ function renderMarket() {
         }).join('')}
       </div>`;
   } else {
-    chainHTML = `<div class="alert gold">⏳ ${isLive ? 'Loading option chain...' : 'Waiting for Angel One connection. Run: node server.js'}</div>`;
+    chainHTML = `<div class="alert gold">⏳ ${st?.ltp ? 'Loading option chain...' : 'Waiting for data...'}</div>`;
   }
 
-  const atmCallLive = data?.atmCall;
-  const atmPutLive = data?.atmPut;
-
-  const mktArea = document.getElementById('mkt-area');
-  if (mktArea) {
-    mktArea.innerHTML = `
-      <div class="stat-grid">
-        <div class="stat-box">
-          <div class="stat-lbl">ATM STRIKE</div>
-          <div class="stat-val" style="color:var(--gold)">${typeof atm === 'number' ? atm.toLocaleString('en-IN') : atm}</div>
-          <div class="stat-sub">${currentInstrument}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-lbl">SESSION</div>
-          <div class="stat-val" style="color:${sess.dot};font-size:16px">${sess.label.split(' ').slice(-1)[0]}</div>
-          <div class="stat-sub">${sess.desc}</div>
-        </div>
+  document.getElementById('mkt-area').innerHTML = `
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="stat-lbl">ATM STRIKE</div>
+        <div class="stat-val" style="color:var(--gold)">${atm.toLocaleString?.('en-IN') || atm}</div>
+        <div class="stat-sub">${selectedInstrument}</div>
       </div>
-
-      <div class="stat-grid">
-        <div class="stat-box">
-          <div class="stat-lbl">ATM CALL</div>
-          <div class="stat-val" style="color:var(--green)">${atmCallLive ? '₹'+atmCallLive : '--'}</div>
-          <div class="stat-sub">Target → ${atmCallLive ? '₹'+(atmCallLive+target) : '--'} | SL → ${atmCallLive ? '₹'+(atmCallLive-sl) : '--'}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-lbl">ATM PUT</div>
-          <div class="stat-val" style="color:var(--red)">${atmPutLive ? '₹'+atmPutLive : '--'}</div>
-          <div class="stat-sub">Target → ${atmPutLive ? '₹'+(atmPutLive+target) : '--'} | SL → ${atmPutLive ? '₹'+(atmPutLive-sl) : '--'}</div>
-        </div>
+      <div class="stat-box">
+        <div class="stat-lbl">LTP</div>
+        <div class="stat-val" style="color:var(--gold);font-size:20px">${st?.ltp ? st.ltp.toLocaleString('en-IN') : '--'}</div>
+        <div class="stat-sub">${INSTRUMENTS[selectedInstrument]?.market || ''}</div>
       </div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="stat-lbl">ATM CALL</div>
+        <div class="stat-val" style="color:var(--green)">${st?.atmCall ? '₹'+st.atmCall : '--'}</div>
+        <div class="stat-sub">T → ${st?.atmCall ? '₹'+(st.atmCall+target) : '--'} | SL → ${st?.atmCall ? '₹'+(st.atmCall-sl) : '--'}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-lbl">ATM PUT</div>
+        <div class="stat-val" style="color:var(--red)">${st?.atmPut ? '₹'+st.atmPut : '--'}</div>
+        <div class="stat-sub">T → ${st?.atmPut ? '₹'+(st.atmPut+target) : '--'} | SL → ${st?.atmPut ? '₹'+(st.atmPut-sl) : '--'}</div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    ${chainHTML}
+  `;
+}
 
-      <div class="divider"></div>
-      ${chainHTML}
-      <div style="font-size:9px;color:var(--text3);text-align:center;margin-top:8px;font-family:var(--mono)">
-        LIVE DATA VIA ANGEL ONE SMARTAPI • ${connStatus === 'live' ? '● STREAMING' : '○ OFFLINE'} • ${currentInstrument}
-      </div>`;
+// ── SIGNALS TAB (Unified Feed) ─────────────────────────────
+function renderSignalsTab() {
+  renderSigSummary();
+  renderSigLog();
+}
+
+function renderSigSummary() {
+  const bar = document.getElementById('sig-summary-bar');
+  if (!bar) return;
+
+  // Count per instrument
+  const perInst = {};
+  Object.keys(INSTRUMENTS).forEach(id => perInst[id] = { fired: 0, near: 0, wins: 0, losses: 0 });
+
+  allSignals.forEach(sig => {
+    const inst = sig.instrument || 'SENSEX';
+    if (!perInst[inst]) perInst[inst] = { fired: 0, near: 0, wins: 0, losses: 0 };
+    if (sig.nearMiss) perInst[inst].near++;
+    else {
+      perInst[inst].fired++;
+      if (sig.tradeStatus === 'WIN') perInst[inst].wins++;
+      if (sig.tradeStatus === 'LOSS') perInst[inst].losses++;
+    }
+  });
+
+  const totalFired = allSignals.filter(s => !s.nearMiss).length;
+  const totalNear = allSignals.filter(s => s.nearMiss).length;
+  const totalWins = allSignals.filter(s => s.tradeStatus === 'WIN').length;
+  const totalLosses = allSignals.filter(s => s.tradeStatus === 'LOSS').length;
+
+  bar.innerHTML = `
+    <div class="sig-summary-chip gold">
+      <span class="chip-val">${totalFired}</span>
+      <span class="chip-lbl">ALL SIGNALS</span>
+    </div>
+    <div class="sig-summary-chip">
+      <span class="chip-val" style="color:var(--gold)">${totalNear}</span>
+      <span class="chip-lbl">NEAR MISS</span>
+    </div>
+    <div class="sig-summary-chip green">
+      <span class="chip-val">${totalWins}W <span style="color:var(--red)">${totalLosses}L</span></span>
+      <span class="chip-lbl">W / L</span>
+    </div>
+    ${Object.entries(perInst).filter(([_,v]) => v.fired > 0).map(([id, v]) => `
+      <div class="sig-summary-chip" style="min-width:60px">
+        <span class="chip-val" style="color:var(--text);font-size:14px">${id}</span>
+        <span class="chip-lbl">${v.fired} sigs</span>
+      </div>
+    `).join('')}
+  `;
+}
+
+function renderSigLog() {
+  const log = document.getElementById('sig-log');
+  if (!log) return;
+
+  if (allSignals.length === 0) {
+    log.innerHTML = '<div class="sig-empty">No signals yet today.<br>Signals fire at 70+ confidence during trading windows.</div>';
+    return;
   }
+
+  log.innerHTML = allSignals.map((sig, idx) => buildSigCard(sig, idx)).join('');
+}
+
+function buildSigCard(sig, idx) {
+  const isCE = sig.type === 'BUY_CE';
+  const isNear = sig.nearMiss;
+  const cls = isNear ? 'sigcard-near' : isCE ? 'sigcard-ce' : 'sigcard-pe';
+  const typeLabel = isNear ? (isCE ? '~ BUY CALL' : '~ BUY PUT') : (isCE ? '▲ BUY CALL' : '▼ BUY PUT');
+  const typeColor = isNear ? 'near' : isCE ? 'ce' : 'pe';
+  const inst = sig.instrument || 'SENSEX';
+  const market = sig.market || INSTRUMENTS[inst]?.market || 'NSE';
+
+  let outHtml = '';
+  if (isNear) {
+    outHtml = '<span class="sigcard-outcome outcome-near">NEAR MISS</span>';
+  } else if (!sig.tradeStatus || sig.tradeStatus === 'NO_TRADE') {
+    outHtml = '<span class="sigcard-outcome outcome-notrade">NO TRADE</span>';
+  } else if (sig.tradeStatus === 'OPEN') {
+    outHtml = '<span class="sigcard-outcome outcome-open">OPEN ●</span>';
+  } else if (sig.tradeStatus === 'WIN') {
+    outHtml = `<span class="sigcard-outcome outcome-win">WIN ₹${sig.pnl >= 0 ? '+' : ''}${sig.pnl || ''}</span>`;
+  } else if (sig.tradeStatus === 'LOSS') {
+    outHtml = `<span class="sigcard-outcome outcome-loss">LOSS ₹${sig.pnl || ''}</span>`;
+  }
+
+  const confClass = sig.confidence >= 85 ? 'strong' : sig.confidence >= 70 ? 'moderate' : 'weak';
+  const confColor = sig.confidence >= 85 ? 'var(--green)' : sig.confidence >= 70 ? 'var(--amber)' : 'var(--red)';
+
+  const entryPrem = sig.entryPremium ? `₹${sig.entryPremium}` : '—';
+  const target = sig.target ? `₹${sig.target}` : '—';
+  const sl = sig.sl ? `₹${sig.sl}` : '—';
+  const price = sig.price ? sig.price.toLocaleString('en-IN') : '—';
+
+  const posF = (sig.factors || []).filter(f => f.score > 0);
+  const negF = (sig.factors || []).filter(f => f.score < 0);
+  const factorHtml = [...posF, ...negF].map(f =>
+    `<span class="factor-tag ${f.score > 0 ? 'factor-pos' : 'factor-neg'}">${f.score > 0 ? '+' : ''}${f.score} ${f.name}</span>`
+  ).join('');
+
+  const uid = `sigfac-${idx}`;
+
+  return `
+  <div class="sigcard ${cls}">
+    <div class="sigcard-head">
+      <div>
+        <div class="sigcard-inst-badge">
+          <span class="inst-name">${inst}</span>
+          <span class="inst-market ${market === 'NSE' ? 'inst-nse' : 'inst-bse'}">${market}</span>
+        </div>
+        <div class="sigcard-type ${typeColor}">${typeLabel}${isNear ? '<span class="sig-near-badge">BELOW THRESHOLD</span>' : ''}</div>
+        ${outHtml}
+      </div>
+      <div class="sigcard-time">
+        <div>#${sig.signalNum || '—'} · ${sig.timeStr || ''}</div>
+        <div style="margin-top:3px;color:var(--text2)">Spot: ${price}</div>
+      </div>
+    </div>
+    <div class="sigcard-conf-row">
+      <div class="sigcard-conf-bar">
+        <div class="sigcard-conf-fill ${confClass}" style="width:${sig.confidence}%"></div>
+      </div>
+      <span class="sigcard-conf-lbl" style="color:${confColor}">${sig.confidence}%</span>
+      <span style="font-size:9px;font-family:var(--mono);color:var(--text3)">${sig.strength || ''}</span>
+    </div>
+    <div class="sigcard-grid">
+      <div class="sigcard-cell"><div class="cell-lbl">ENTRY PREM</div><div class="cell-val gold">${entryPrem}</div></div>
+      <div class="sigcard-cell"><div class="cell-lbl">TARGET</div><div class="cell-val green">${target}</div></div>
+      <div class="sigcard-cell"><div class="cell-lbl">STOP LOSS</div><div class="cell-val red">${sl}</div></div>
+      <div class="sigcard-cell"><div class="cell-lbl">STRIKE</div><div class="cell-val">${sig.strike || '—'}</div></div>
+      <div class="sigcard-cell"><div class="cell-lbl">CONFIDENCE</div><div class="cell-val ${sig.confidence >= 85 ? 'green' : sig.confidence >= 70 ? 'gold' : 'red'}">${sig.confidence}%</div></div>
+      <div class="sigcard-cell"><div class="cell-lbl">STRENGTH</div><div class="cell-val ${sig.confidence >= 85 ? 'green' : sig.confidence >= 70 ? 'gold' : 'red'}">${sig.strength || '—'}</div></div>
+    </div>
+    <button class="sigcard-factors-toggle" onclick="toggleFactors('${uid}', this)">
+      <span>CONFIDENCE FACTORS (${(sig.factors||[]).length})</span>
+      <span id="${uid}-arrow">▶</span>
+    </button>
+    <div class="sigcard-factors-body collapsed" id="${uid}">
+      ${factorHtml || '<span style="font-size:10px;color:var(--text3)">No factors</span>'}
+    </div>
+  </div>`;
+}
+
+function toggleFactors(uid, btn) {
+  const body = document.getElementById(uid);
+  const arrow = document.getElementById(uid + '-arrow');
+  if (!body) return;
+  const open = !body.classList.contains('collapsed');
+  body.classList.toggle('collapsed', open);
+  if (arrow) arrow.textContent = open ? '▶' : '▼';
+}
+
+function updateSigBadge() {
+  const badge = document.getElementById('sig-count-badge');
+  const dashBadge = document.getElementById('signal-badge');
+  const fired = allSignals.filter(s => !s.nearMiss).length;
+  if (badge) {
+    if (fired > 0) { badge.textContent = fired; badge.style.display = 'inline-block'; }
+    else badge.style.display = 'none';
+  }
+  if (dashBadge) {
+    if (fired > 0) { dashBadge.textContent = fired; dashBadge.style.display = 'inline-flex'; }
+    else dashBadge.style.display = 'none';
+  }
+  const countBadge = document.getElementById('sig-count-badge');
+  if (countBadge) countBadge.textContent = fired;
+}
+
+// ── CLOCK & SESSION ──────────────────────────────────────────
+function getIST() {
+  return new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Kolkata'}));
+}
+function pad(n) { return String(n).padStart(2,'0'); }
+
+const SESSIONS = [
+  {id:'earlyam',  s:'00:00',e:'08:44',label:'MARKET CLOSED',  dot:'#344d6a',col:'dim',   desc:'Opens 9:15 AM IST'},
+  {id:'premarket',s:'08:45',e:'09:14',label:'PRE-MARKET',     dot:'#F0A500',col:'gold',  desc:'Preparation time'},
+  {id:'opening',  s:'09:15',e:'09:29',label:'OPENING GAP',    dot:'#ff3d5a',col:'red',   desc:'Watch only — no trade'},
+  {id:'window1',  s:'09:30',e:'10:29',label:'WINDOW 1 OPEN',  dot:'#00e5a0',col:'green', desc:'Primary entry window'},
+  {id:'midmorn',  s:'10:30',e:'11:59',label:'MID MORNING',    dot:'#4da6ff',col:'blue',  desc:'Continuation trades only'},
+  {id:'lunch',    s:'12:00',e:'13:29',label:'LUNCH LULL',     dot:'#ff3d5a',col:'red',   desc:'No trades — theta decay'},
+  {id:'window2',  s:'13:30',e:'14:29',label:'WINDOW 2 OPEN',  dot:'#00e5a0',col:'green', desc:'Second entry window'},
+  {id:'closing',  s:'14:30',e:'15:29',label:'CLOSING',        dot:'#F0A500',col:'gold',  desc:'Exit all positions'},
+  {id:'closed',   s:'15:30',e:'23:59',label:'MARKET CLOSED',  dot:'#344d6a',col:'dim',   desc:'Review & prepare'},
+];
+
+function getSession(ist) {
+  const t = ist.getHours()*100 + ist.getMinutes();
+  for (const s of SESSIONS) {
+    const [sh,sm] = s.s.split(':').map(Number);
+    const [eh,em] = s.e.split(':').map(Number);
+    if (t >= sh*100+sm && t <= eh*100+em) return s;
+  }
+  return SESSIONS[0];
+}
+
+let lastSessionId = null;
+function updateClock() {
+  const ist = getIST();
+  const h=ist.getHours(), m=ist.getMinutes(), s=ist.getSeconds();
+  document.getElementById('clock').textContent = `${pad(h)}:${pad(m)}:${pad(s)}`;
+  const DAYS=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const MTHS=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  document.getElementById('datestr').textContent = `${DAYS[ist.getDay()]} ${ist.getDate()} ${MTHS[ist.getMonth()]}`;
+
+  const sess = getSession(ist);
+  const sribbon = document.getElementById('sribbon');
+  sribbon.style.background = sess.dot + '18';
+  document.getElementById('sribbon-dot').style.background = sess.dot;
+  document.getElementById('sribbon-label').style.color = sess.dot;
+  document.getElementById('sribbon-label').textContent = sess.label;
+  document.getElementById('sribbon-desc').textContent = sess.desc;
+
+  const idx = SESSIONS.findIndex(x => x.id === sess.id);
+  const next = SESSIONS[idx+1];
+  if (next) {
+    const [nh,nm] = next.s.split(':').map(Number);
+    const nowMins = h*60+m;
+    const nextMins = nh*60+nm;
+    const diff = nextMins - nowMins;
+    if (diff > 0 && diff <= 120) {
+      document.getElementById('sribbon-timer').textContent = `${diff}m → ${next.label}`;
+    } else {
+      document.getElementById('sribbon-timer').textContent = '';
+    }
+  }
+
+  if (currentTab === 'dash' && sess.id !== lastSessionId) {
+    lastSessionId = sess.id;
+    renderDash(sess, ist);
+  }
+}
+
+// ── DASHBOARD ────────────────────────────────────────────────
+const INST = {
+  earlyam:  {col:'dim',  title:'MARKET CLOSED',          body:'Review previous trade journal.\nStudy yesterday's price action.\nPrepare levels for today's session.\n<b>Market opens at 9:15 AM IST.</b>',
+    checks:['Review yesterday's trade log & P&L','Study ATM option price behavior','Mark key levels for today','Check for major news events','Rest and mentally prepare']},
+  premarket:{col:'gold', title:'PRE-MARKET PREP',        body:'This window is for <b>preparation only.</b>\nNo orders. Just observation and planning.\nMark your reference levels now.',
+    checks:['Mark PDH & PDL on chart','Mark previous week high/low','Check Gift Nifty gap direction','Decide initial bias: Bullish / Bearish / Neutral','Note any major events today (Budget, RBI, Global)','Charts ready: 15 min + 5 min + 3 min']},
+  opening:  {col:'red',  title:'DO NOT TRADE',           body:'<b>Biggest mistake: trading this window.</b>\nWide spreads. Fake moves. Gap fills.\nJust mark the Opening Range and watch.\nLet the market reveal its direction.',
+    checks:['Mark 9:15–9:30 candle high & low (Opening Range)','Note gap direction: filling or extending?','Watch VWAP position on 15-min','No orders — hands off terminal']},
+  window1:  {col:'green',title:'WINDOW 1 — TRADE NOW',  body:'<b>Your best window of the day.</b>\nLook for Opening Range Breakout on 5-min.\nConfirm 15-min direction first.\nATM or 1-step ITM preferred.',
+    checks:['15-min trend confirmed (HH+HL or LL+LH)?','Price above VWAP → Calls | Below → Puts','5-min ORB breakout with volume spike?','ATM or ITM selected (not deep OTM)?','Entry premium noted in journal','Mental SL set at −₹20 on premium','Target set at +₹25 on premium','Max 2 trades today — make them count']},
+  midmorn:  {col:'blue', title:'MID-MORNING',            body:'First wave may be over.\n<b>If daily target hit → close terminal now.</b>\nOnly trade if trend is clearly continuing.\nVery selective. High confidence only.',
+    checks:['Daily target already hit? → STOP TRADING','15-min trend still intact?','No reversal candles or VWAP rejection?','Fresh breakout on 5-min with volume?','Not chasing — pure setup only']},
+  lunch:    {col:'red',  title:'LUNCH LULL — STOP',     body:'<b>Most dangerous time for option buyers.</b>\nTheta decay is accelerating.\nVolume is low. Spreads widen.\nPremium loses value even if flat.\n\n<b>ZERO NEW POSITIONS.</b>',
+    checks:['Close profitable positions → book it','Do NOT enter any new positions','Update today's journal entries','Analyse morning trades objectively','Eat, rest, clear your mind']},
+  window2:  {col:'green',title:'WINDOW 2 — OPEN',       body:'Second opportunity of the day.\nFII/DII afternoon positioning creates moves.\n<b>Same rules as Window 1.</b>\nNote: theta is higher — be faster.',
+    checks:['Fresh 15-min trend forming?','VWAP being tested as S/R?','5-min clean breakout with volume?','Slightly reduce lot size (theta risk)?','SL: −₹20 on premium — strict, no exceptions']},
+  closing:  {col:'gold', title:'CLOSING — EXIT ALL',    body:'2:30–3:30 PM is erratic and unpredictable.\nExpiry hedge unwinding causes sharp reversals.\n<b>Exit all open positions before 3 PM.</b>\nNo new entries in this window.',
+    checks:['All positions closed before 3:00 PM?','No new options bought today?','Mark today's close price for tomorrow','Write final P&L in journal','Did you follow the strategy? Be honest.']},
+  closed:   {col:'dim',  title:'END OF SESSION',        body:'Trading is over for today.\n<b>Discipline in review = better tomorrow.</b>\nSpend 15 minutes on honest reflection.',
+    checks:['Log every trade: entry, exit, reason','Calculate accurate daily P&L','Note any rule violations (without excuses)','Note what worked and what did not','Prepare tomorrow's chart levels']},
+};
+
+let checks = {};
+
+function renderDash(sess, ist) {
+  const inst = INST[sess.id] || INST.closed;
+  const key = sess.id;
+  if (!checks[key]) checks[key] = inst.checks.map(() => false);
+
+  const isTradeable = sess.id === 'window1' || sess.id === 'window2';
+  const isAvoid = sess.id === 'lunch' || sess.id === 'opening';
+  const colorMap = {gold:'var(--gold)',green:'var(--green)',red:'var(--red)',blue:'var(--blue)',dim:'var(--text2)'};
+
+  document.getElementById('inst-area').innerHTML = `
+    <div class="inst-card ${inst.col}" style="margin-bottom:12px">
+      <div class="inst-title" style="color:${colorMap[inst.col]}">${inst.title}</div>
+      <div class="inst-body">${inst.body.replace(/\n/g,'<br>').replace(/<b>/g,'<b style="color:var(--text)">')}</div>
+    </div>
+    ${isTradeable ? `
+      <div class="signal go">
+        <span class="signal-icon">✦</span>
+        <div><div class="signal-text" style="color:var(--green)">ACTIVE TRADING WINDOW</div>
+        <div class="signal-sub">Entry signals valid — follow the 3-step checklist</div></div>
+      </div>` : ''}
+    ${isAvoid ? `
+      <div class="signal no">
+        <span class="signal-icon">✕</span>
+        <div><div class="signal-text" style="color:var(--red)">NO TRADE ZONE</div>
+        <div class="signal-sub">${sess.desc}</div></div>
+      </div>` : ''}`;
+
+  const done = checks[key].filter(Boolean).length;
+  const total = inst.checks.length;
+  const pct = total ? Math.round(done/total*100) : 0;
+  document.getElementById('chk-count').textContent = `${done}/${total}`;
+  document.getElementById('chk-fill').style.width = pct + '%';
+
+  document.getElementById('chk-area').innerHTML = inst.checks.map((c,i) => `
+    <div class="chk-item" onclick="toggleCheck('${key}',${i})">
+      <div class="chk-box ${checks[key][i]?'done':''}">${checks[key][i]?'✓':''}</div>
+      <div class="chk-text ${checks[key][i]?'done':''}">${c}</div>
+    </div>`).join('');
+}
+
+function toggleCheck(key, i) {
+  if (!checks[key]) return;
+  checks[key][i] = !checks[key][i];
+  const ist = getIST();
+  const sess = getSession(ist);
+  if (sess.id === key) renderDash(sess, ist);
 }
 
 // ── CALCULATOR ───────────────────────────────────────────────
 function syncCalcFromConfig() {
   const t = cfg.trading;
   if (!t) return;
-  const targetEl = document.getElementById('c-target');
-  const moveEl = document.getElementById('c-move');
-  if (targetEl) targetEl.value = t.defaultMonthlyGoal || 35000;
-  if (moveEl) moveEl.value = t.defaultTarget || 25;
+  if (document.getElementById('c-target')) document.getElementById('c-target').value = t.defaultMonthlyGoal || 35000;
+  if (document.getElementById('c-move')) document.getElementById('c-move').value = t.defaultTarget || 25;
   calcResults();
 }
 
 function calcResults() {
-  const targetEl = document.getElementById('c-target');
-  const moveEl = document.getElementById('c-move');
-  const typeEl = document.getElementById('c-type');
-  const daysEl = document.getElementById('c-days');
-  const tradesEl = document.getElementById('c-trades');
-  const wrEl = document.getElementById('c-wr');
-
-  const target = targetEl ? (+targetEl.value || 35000) : 35000;
-  const move = moveEl ? (+moveEl.value || 25) : 25;
-  const type = typeEl ? typeEl.value : 'atm';
-  const dWk = daysEl ? (+daysEl.value || 3) : 3;
-  const tDay = tradesEl ? (+tradesEl.value || 2) : 2;
-  const wr = wrEl ? ((+wrEl.value || 60) / 100) : 0.6;
-
+  const target = +document.getElementById('c-target').value || 35000;
+  const move = +document.getElementById('c-move').value || 25;
+  const type = document.getElementById('c-type').value;
+  const dWk = +document.getElementById('c-days').value || 3;
+  const tDay = +document.getElementById('c-trades').value || 2;
+  const wr = (+document.getElementById('c-wr').value || 60) / 100;
   const prem = {itm:550, atm:380, otm:220}[type];
-  const lotSz = 10;
+  const lotSz = INSTRUMENTS[selectedInstrument]?.lotSize || 15;
   const tradDays = dWk===3?12:dWk===4?16:20;
   const profitPerLot = move * lotSz;
   const lossPerLot = Math.round(move * 0.8) * lotSz;
@@ -1198,54 +1461,46 @@ function calcResults() {
   const active = lots * prem;
   const buffer = Math.round(active * 0.35);
   const total = active + buffer;
-  const sensexPts = Math.round(move / (type==='itm'?0.65:type==='atm'?0.50:0.35));
   const rrRatio = (move / (move*0.8)).toFixed(2);
   const minWinRate = Math.round(1/(1+parseFloat(rrRatio))*100);
 
-  const calcOut = document.getElementById('calc-out');
-  if (calcOut) {
-    calcOut.innerHTML = `
-      <div class="res-block">
-        <div class="res-block-hdr">MONTHLY PROJECTION</div>
-        <div class="res-row"><span class="res-key">Income target</span><span class="res-val a">₹${target.toLocaleString('en-IN')}</span></div>
-        <div class="res-row"><span class="res-key">Brokerage + taxes est.</span><span class="res-val r">−₹7,500</span></div>
-        <div class="res-row"><span class="res-key">Gross needed / month</span><span class="res-val">₹${grossNeeded.toLocaleString('en-IN')}</span></div>
-        <div class="res-row"><span class="res-key">Trading days / month</span><span class="res-val">${tradDays} days</span></div>
-        <div class="res-row"><span class="res-key">Daily target</span><span class="res-val a">₹${perDayNeeded.toLocaleString('en-IN')}</span></div>
-        <div class="res-row"><span class="res-key">Profit per lot (₹${move}×${lotSz})</span><span class="res-val g">₹${profitPerLot}</span></div>
-        <div class="res-row"><span class="res-key">Win rate used</span><span class="res-val">${Math.round(wr*100)}%</span></div>
-        <div class="res-hero">
-          <span class="res-hero-label">LOTS REQUIRED</span>
-          <span class="res-hero-val">${lots}</span>
-        </div>
+  document.getElementById('calc-out').innerHTML = `
+    <div class="res-block">
+      <div class="res-block-hdr">MONTHLY PROJECTION (${selectedInstrument})</div>
+      <div class="res-row"><span class="res-key">Income target</span><span class="res-val a">₹${target.toLocaleString('en-IN')}</span></div>
+      <div class="res-row"><span class="res-key">Brokerage + taxes est.</span><span class="res-val r">−₹7,500</span></div>
+      <div class="res-row"><span class="res-key">Gross needed / month</span><span class="res-val">₹${grossNeeded.toLocaleString('en-IN')}</span></div>
+      <div class="res-row"><span class="res-key">Trading days / month</span><span class="res-val">${tradDays} days</span></div>
+      <div class="res-row"><span class="res-key">Daily target</span><span class="res-val a">₹${perDayNeeded.toLocaleString('en-IN')}</span></div>
+      <div class="res-row"><span class="res-key">Profit per lot (₹${move}×${lotSz})</span><span class="res-val g">₹${profitPerLot}</span></div>
+      <div class="res-row"><span class="res-key">Win rate used</span><span class="res-val">${Math.round(wr*100)}%</span></div>
+      <div class="res-hero">
+        <span class="res-hero-label">LOTS REQUIRED</span>
+        <span class="res-hero-val">${lots}</span>
       </div>
-      <div class="res-block" style="margin-top:10px">
-        <div class="res-block-hdr">CAPITAL BREAKDOWN</div>
-        <div class="res-row"><span class="res-key">${type.toUpperCase()} avg premium</span><span class="res-val">₹${prem}/lot</span></div>
-        <div class="res-row"><span class="res-key">Active capital (${lots} lots)</span><span class="res-val">₹${active.toLocaleString('en-IN')}</span></div>
-        <div class="res-row"><span class="res-key">Safety buffer (35%)</span><span class="res-val">₹${buffer.toLocaleString('en-IN')}</span></div>
-        <div class="res-hero">
-          <span class="res-hero-label">TOTAL CAPITAL</span>
-          <span class="res-hero-val">₹${total.toLocaleString('en-IN')}</span>
-        </div>
+    </div>
+    <div class="res-block" style="margin-top:10px">
+      <div class="res-block-hdr">CAPITAL BREAKDOWN</div>
+      <div class="res-row"><span class="res-key">${type.toUpperCase()} avg premium</span><span class="res-val">₹${prem}/lot</span></div>
+      <div class="res-row"><span class="res-key">Active capital (${lots} lots)</span><span class="res-val">₹${active.toLocaleString('en-IN')}</span></div>
+      <div class="res-row"><span class="res-key">Safety buffer (35%)</span><span class="res-val">₹${buffer.toLocaleString('en-IN')}</span></div>
+      <div class="res-hero">
+        <span class="res-hero-label">TOTAL CAPITAL</span>
+        <span class="res-hero-val">₹${total.toLocaleString('en-IN')}</span>
       </div>
-      <div class="res-block" style="margin-top:10px">
-        <div class="res-block-hdr">RISK PER TRADE AT ${lots} LOTS</div>
-        <div class="res-row"><span class="res-key">Win (+₹${move} premium)</span><span class="res-val g">+₹${(lots*profitPerLot).toLocaleString('en-IN')}</span></div>
-        <div class="res-row"><span class="res-key">Loss (−₹${Math.round(move*0.8)} premium)</span><span class="res-val r">−₹${(lots*lossPerLot).toLocaleString('en-IN')}</span></div>
-        <div class="res-row"><span class="res-key">Daily loss limit (2 SLs)</span><span class="res-val r">−₹${(lots*lossPerLot*2).toLocaleString('en-IN')}</span></div>
-        <div class="res-row"><span class="res-key">Sensex pts for ₹${move} move</span><span class="res-val a">~${sensexPts} pts</span></div>
-        <div class="res-row"><span class="res-key">R:R ratio</span><span class="res-val">1 : ${rrRatio}</span></div>
-        <div class="res-row"><span class="res-key">Min win rate to profit</span><span class="res-val">${minWinRate}%</span></div>
-      </div>`;
-  }
+    </div>
+    <div class="res-block" style="margin-top:10px">
+      <div class="res-block-hdr">RISK PER TRADE AT ${lots} LOTS</div>
+      <div class="res-row"><span class="res-key">Win (+₹${move} premium)</span><span class="res-val g">+₹${(lots*profitPerLot).toLocaleString('en-IN')}</span></div>
+      <div class="res-row"><span class="res-key">Loss (−₹${Math.round(move*0.8)} premium)</span><span class="res-val r">−₹${(lots*lossPerLot).toLocaleString('en-IN')}</span></div>
+      <div class="res-row"><span class="res-key">R:R ratio</span><span class="res-val">1 : ${rrRatio}</span></div>
+      <div class="res-row"><span class="res-key">Min win rate to profit</span><span class="res-val">${minWinRate}%</span></div>
+    </div>`;
 }
 
 // ── STRATEGY ─────────────────────────────────────────────────
 function renderStrategy() {
-  const stratArea = document.getElementById('strat-area');
-  if (!stratArea) return;
-  stratArea.innerHTML = `
+  document.getElementById('strat-area').innerHTML = `
     <div class="sec-hdr"><div class="sec-title">FRAMEWORK</div><div class="sec-line"></div></div>
     <div class="step-card">
       <div class="step-num">1</div>
@@ -1304,19 +1559,6 @@ function renderStrategy() {
       <div class="rule-item"><span class="rule-num">5</span><span class="rule-text"><b>No Thu/Fri trades</b> — theta decay destroys option buyers.</span></div>
       <div class="rule-item"><span class="rule-num">6</span><span class="rule-text"><b>No lunch trades</b> (12–1:30 PM) — theta accelerates, volume drops.</span></div>
       <div class="rule-item"><span class="rule-num">7</span><span class="rule-text"><b>ATM or ITM only</b> — deep OTM is a lottery, not a strategy.</span></div>
-    </div>
-
-    <div class="divider"></div>
-    <div class="sec-hdr"><div class="sec-title">SENSEX STATS</div><div class="sec-line"></div></div>
-    <div class="inst-card dim">
-      <div class="inst-body">
-        <b>Average daily range:</b> 400–550 points<br>
-        <b>For ATM target of ₹25:</b> need only ~50 pts = 11% of daily range<br>
-        <b>For ITM target of ₹25:</b> need only ~38 pts = 8% of daily range<br>
-        <b>For OTM target of ₹25:</b> need only ~70 pts = 15% of daily range<br><br>
-        <b style="color:var(--green)">Sensex delivers your target almost every day.</b><br>
-        <b style="color:var(--gold)">Your only job: be on the right side at the right time.</b>
-      </div>
     </div>`;
 }
 
@@ -1325,475 +1567,32 @@ function switchTab(name) {
   currentTab = name;
   document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  const paneEl = document.getElementById('pane-'+name);
-  const tabEl = document.getElementById('tab-'+name);
-  if (paneEl) paneEl.classList.add('active');
-  if (tabEl) tabEl.classList.add('active');
-
+  document.getElementById('pane-'+name).classList.add('active');
+  document.getElementById('tab-'+name).classList.add('active');
   if (name === 'calc') calcResults();
   if (name === 'strat') renderStrategy();
   if (name === 'mkt') renderMarket();
   if (name === 'sig') renderSignalsTab();
-  if (name === 'dash') {
-    lastSessionId = null;
-    updateClock();
-    renderAnalysis();
-    renderSRPanel();
-  }
+  if (name === 'dash') { lastSessionId = null; updateClock(); renderAnalysis(); renderOIWalls(); renderTradeTracker(); renderMiniSigFeed(); }
 }
 
-// ── SIGNALS TAB ─────────────────────────────────────────────
-function updateSigBadge() {
-  const badge = document.getElementById('sig-count-badge');
-  if (!badge) return;
-  const data = instrumentData[currentInstrument];
-  const total = (data?.signals || []).length;
-  if (total > 0) {
-    badge.textContent = total;
-    badge.style.display = 'inline-block';
-  }
-}
+// ── CONN STATUS ───────────────────────────────────────────
+function updateConnStatus(status, msg) {
+  connStatus = status;
+  const dot = document.getElementById('conn-dot');
+  if (dot) dot.className = `conn-dot ${status === 'live' ? 'live' : status === 'error' ? 'err' : 'wait'}`;
 
-function renderSignalsTab() {
-  const data = instrumentData[currentInstrument];
-  const signals = data?.signals || [];
-  const trade = data?.trade;
-
-  const bar = document.getElementById('sig-summary-bar');
-  const log = document.getElementById('sig-log');
-
-  const fired = signals.filter(s => !s.nearMiss);
-  const near = signals.filter(s => s.nearMiss);
-  const wins = fired.filter(s => s.tradeStatus === 'WIN').length;
-  const losses = fired.filter(s => s.tradeStatus === 'LOSS').length;
-  const dailyPnL = trade?.dailyPnL || 0;
-
-  if (bar) {
-    bar.innerHTML = `
-      <div class="sig-summary-chip gold">
-        <span class="chip-val">${fired.length}<span style="font-size:12px;color:var(--text3)">/5</span></span>
-        <span class="chip-lbl">SIGNALS</span>
-      </div>
-      <div class="sig-summary-chip" style="">
-        <span class="chip-val" style="color:var(--gold)">${near.length}</span>
-        <span class="chip-lbl">NEAR MISS</span>
-      </div>
-      <div class="sig-summary-chip green">
-        <span class="chip-val">${wins}W <span style="color:var(--red)">${losses}L</span></span>
-        <span class="chip-lbl">W / L</span>
-      </div>
-      <div class="sig-summary-chip ${dailyPnL >= 0 ? 'green' : 'red'}">
-        <span class="chip-val">₹${dailyPnL >= 0 ? '+' : ''}${dailyPnL}</span>
-        <span class="chip-lbl">DAILY P&L</span>
-      </div>`;
-  }
-
-  if (log) {
-    if (signals.length === 0) {
-      log.innerHTML = '<div class="sig-empty">No signals yet today.<br>Signals fire at 70+ confidence (9:30–2:30).<<br>Near-misses shown at 60–69.</div>';
-      return;
+  const bannerArea = document.getElementById('conn-banner-area');
+  if (bannerArea && currentTab === 'dash') {
+    if (status === 'live') {
+      bannerArea.innerHTML = `<div class="conn-banner live">● ANGEL ONE LIVE — ${msg}</div>`;
+      setTimeout(() => { bannerArea.innerHTML = ''; }, 3000);
+    } else if (status === 'error') {
+      bannerArea.innerHTML = `<div class="conn-banner">⚠ ${msg} — Run: node server.js</div>`;
+    } else {
+      bannerArea.innerHTML = `<div class="conn-banner waiting">◌ ${msg}</div>`;
     }
-
-    log.innerHTML = signals.slice().reverse().map((sig, idx) => buildSigCard(sig, idx)).join('');
   }
-}
-
-function buildSigCard(sig, idx) {
-  const isCE = sig.type === 'BUY_CE';
-  const isNear = sig.nearMiss;
-  const cls = isNear ? 'sigcard-near' : isCE ? 'sigcard-ce' : 'sigcard-pe';
-  const typeLabel = isNear ? (isCE ? '~ BUY CALL' : '~ BUY PUT') : (isCE ? '▲ BUY CALL' : '▼ BUY PUT');
-  const typeColor = isNear ? 'near' : isCE ? 'ce' : 'pe';
-
-  let outHtml = '';
-  if (isNear) outHtml = '<span class="sigcard-outcome outcome-near">NEAR MISS</span>';
-  else if (!sig.tradeStatus || sig.tradeStatus === 'NO_TRADE') outHtml = '<span class="sigcard-outcome outcome-notrade">NO TRADE</span>';
-  else if (sig.tradeStatus === 'OPEN') outHtml = '<span class="sigcard-outcome outcome-open">OPEN ●</span>';
-  else if (sig.tradeStatus === 'WIN') outHtml = `<span class="sigcard-outcome outcome-win">WIN ₹${sig.pnl >= 0 ? '+' : ''}${sig.pnl || ''}</span>`;
-  else if (sig.tradeStatus === 'LOSS') outHtml = `<span class="sigcard-outcome outcome-loss">LOSS ₹${sig.pnl || ''}</span>`;
-
-  const confClass = sig.confidence >= 85 ? 'strong' : sig.confidence >= 70 ? 'moderate' : 'weak';
-  const confColor = sig.confidence >= 85 ? 'var(--green)' : sig.confidence >= 70 ? 'var(--amber)' : 'var(--red)';
-
-  const entryPrem = sig.entryPremium ? `₹${sig.entryPremium}` : '—';
-  const target = sig.target ? `₹${sig.target}` : '—';
-  const sl = sig.sl ? `₹${sig.sl}` : '—';
-  const sensex = sig.price ? sig.price.toLocaleString('en-IN') : '—';
-  const vwap = sig.vwap ? sig.vwap.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—';
-  const ema5 = sig.ema5 ? sig.ema5.toLocaleString('en-IN', {maximumFractionDigits:0}) : '—';
-
-  const posF = (sig.factors || []).filter(f => f.score > 0);
-  const negF = (sig.factors || []).filter(f => f.score < 0);
-  const factorHtml = [...posF, ...negF].map(f =>
-    `<span class="factor-tag ${f.score > 0 ? 'factor-pos' : 'factor-neg'}">${f.score > 0 ? '+' : ''}${f.score} ${f.name}</span>`
-  ).join('');
-
-  const uid = `sigfac-${idx}`;
-
-  return `
-  <div class="sigcard ${cls}">
-    <div class="sigcard-head">
-      <div>
-        <div class="sigcard-type ${typeColor}">${typeLabel}${isNear ? '<span class="sig-near-badge">BELOW THRESHOLD</span>' : ''}</div>
-        ${outHtml}
-      </div>
-      <div class="sigcard-time">
-        <div>#${sig.signalNum || '—'} · ${sig.timeStr || ''}</div>
-        <div style="margin-top:3px;color:var(--text2)">${sig.instrument || currentInstrument} ${sensex}</div>
-      </div>
-    </div>
-
-    <div class="sigcard-conf-row">
-      <div class="sigcard-conf-bar">
-        <div class="sigcard-conf-fill ${confClass}" style="width:${sig.confidence}%"></div>
-      </div>
-      <span class="sigcard-conf-lbl" style="color:${confColor}">${sig.confidence}%</span>
-      <span style="font-size:9px;font-family:var(--mono);color:var(--text3)">${sig.strength || ''}</span>
-    </div>
-
-    <div class="sigcard-grid">
-      <div class="sigcard-cell">
-        <div class="cell-lbl">ENTRY PREM</div>
-        <div class="cell-val gold">${entryPrem}</div>
-      </div>
-      <div class="sigcard-cell">
-        <div class="cell-lbl">TARGET</div>
-        <div class="cell-val green">${target}</div>
-      </div>
-      <div class="sigcard-cell">
-        <div class="cell-lbl">STOP LOSS</div>
-        <div class="cell-val red">${sl}</div>
-      </div>
-      <div class="sigcard-cell">
-        <div class="cell-lbl">VWAP</div>
-        <div class="cell-val">${vwap}</div>
-      </div>
-      <div class="sigcard-cell">
-        <div class="cell-lbl">EMA 5</div>
-        <div class="cell-val">${ema5}</div>
-      </div>
-      <div class="sigcard-cell">
-        <div class="cell-lbl">STRENGTH</div>
-        <div class="cell-val ${sig.confidence >= 85 ? 'green' : sig.confidence >= 70 ? 'gold' : 'red'}">${sig.strength || '—'}</div>
-      </div>
-    </div>
-
-    <button class="sigcard-factors-toggle" onclick="toggleFactors('${uid}', this)">
-      <span>CONFIDENCE FACTORS (${(sig.factors||[]).length})</span>
-      <span id="${uid}-arrow">▶</span>
-    </button>
-    <div class="sigcard-factors-body collapsed" id="${uid}">
-      ${factorHtml || '<span style="font-size:10px;color:var(--text3)">No factors</span>'}
-    </div>
-  </div>`;
-}
-
-function toggleFactors(uid, btn) {
-  const body = document.getElementById(uid);
-  const arrow = document.getElementById(uid + '-arrow');
-  if (!body) return;
-  const open = !body.classList.contains('collapsed');
-  body.classList.toggle('collapsed', open);
-  if (arrow) arrow.textContent = open ? '▶' : '▼';
-}
-
-// ── ANALYSIS PANEL ──────────────────────────────────────────
-function renderAnalysis() {
-  const data = instrumentData[currentInstrument];
-  const analysis = data?.analysis;
-  if (!analysis) return;
-
-  const { indicators: ind, state, trade, signals } = analysis;
-  if (!ind) return;
-
-  const stateColors = {
-    TRENDING_BULLISH: 'sp-bull', BREAKOUT: 'sp-bull',
-    TRENDING_BEARISH: 'sp-bear',
-    SIDEWAYS: 'sp-side', UNKNOWN: 'sp-side',
-    VOLATILE: 'sp-vol', REVERSAL: 'sp-vol',
-  };
-  const stateEmoji = {
-    TRENDING_BULLISH: '▲', TRENDING_BEARISH: '▼',
-    SIDEWAYS: '─', VOLATILE: '⚡', BREAKOUT: '🚀', REVERSAL: '↩', UNKNOWN: '?'
-  };
-
-  const stateClass = stateColors[state?.state] || 'sp-side';
-  const stateIco = stateEmoji[state?.state] || '?';
-
-  const analysisArea = document.getElementById('analysis-area');
-  if (analysisArea) {
-    analysisArea.innerHTML = `
-      <div class="sec-hdr"><div class="sec-title">LIVE ANALYSIS</div><div class="sec-line"></div>
-        <div class="sec-tag">${currentInstrument} • Signals: ${signals?.totalToday || 0}/5</div>
-      </div>
-
-      <div class="state-pill ${stateClass}">
-        ${stateIco} ${state?.state?.replace('_',' ') || 'UNKNOWN'}
-      </div>
-
-      <div class="analysis-grid">
-        <div class="ana-box">
-          <div class="ana-label">EMA 5</div>
-          <div class="ana-val">${ind.ema5 ? ind.ema5.toLocaleString('en-IN') : '--'}</div>
-        </div>
-        <div class="ana-box">
-          <div class="ana-label">EMA 9</div>
-          <div class="ana-val">${ind.ema9 ? ind.ema9.toLocaleString('en-IN') : '--'}</div>
-        </div>
-        <div class="ana-box">
-          <div class="ana-label">VWAP</div>
-          <div class="ana-val ${ind.bias?.aboveVWAP ? 'bull' : 'bear'}">${ind.vwap ? ind.vwap.toLocaleString('en-IN') : '--'}</div>
-        </div>
-        <div class="ana-box">
-          <div class="ana-label">BB WIDTH</div>
-          <div class="ana-val ${ind.bb?.squeeze ? 'bear' : 'bull'}">${ind.bb?.bw ? ind.bb.bw.toFixed(2)+'%' : '--'}</div>
-        </div>
-        <div class="ana-box">
-          <div class="ana-label">BIAS</div>
-          <div class="ana-val ${ind.bias?.bullishEMA ? 'bull' : ind.bias?.bearishEMA ? 'bear' : 'neu'}">
-            ${ind.bias?.bullishEMA ? 'BULLISH' : ind.bias?.bearishEMA ? 'BEARISH' : 'NEUTRAL'}
-          </div>
-        </div>
-        <div class="ana-box">
-          <div class="ana-label">BB SQUEEZE</div>
-          <div class="ana-val ${ind.bb?.squeeze ? 'bear' : 'bull'}">${ind.bb?.squeeze ? 'YES ⚠️' : 'NO ✓'}</div>
-        </div>
-      </div>
-
-      ${trade ? `
-      <div class="trade-box">
-        <div class="trade-hdr">
-          <span class="trade-hdr-label">TRADE TRACKER</span>
-          <span class="trade-status" style="color:${trade.dailyPnL >= 0 ? 'var(--green)' : 'var(--red)'}">
-            Daily P&L: ₹${trade.dailyPnL}
-          </span>
-        </div>
-        ${trade.activeTrade ? `
-          <div class="trade-row"><span class="trade-key">Type</span><span class="trade-val" style="color:${trade.activeTrade.type==='BUY_CE'?'var(--green)':'var(--red)'}">${trade.activeTrade.type}</span></div>
-          <div class="trade-row"><span class="trade-key">Entry Premium</span><span class="trade-val">₹${trade.activeTrade.entryPremium}</span></div>
-          <div class="trade-row"><span class="trade-key">Current Premium</span><span class="trade-val">₹${trade.activeTrade.currentPremium}</span></div>
-          <div class="trade-row"><span class="trade-key">Target</span><span class="trade-val" style="color:var(--green)">₹${trade.activeTrade.target}</span></div>
-          <div class="trade-row"><span class="trade-key">Stop Loss</span><span class="trade-val" style="color:var(--red)">₹${trade.activeTrade.trailing ? trade.activeTrade.trailSL + ' (Trail)' : trade.activeTrade.sl}</span></div>
-          <div class="trade-row"><span class="trade-key">Unrealised P&L</span>
-            <span class="trade-val" style="color:${(trade.activeTrade.unrealisedPnL||0)>=0?'var(--green)':'var(--red)'}">
-              ₹${trade.activeTrade.unrealisedPnL || 0}
-            </span>
-          </div>
-        ` : `<div style="padding:14px;text-align:center;font-size:11px;color:var(--text3)">No active trade</div>`}
-        <div class="trade-row"><span class="trade-key">Today: W/L</span><span class="trade-val">${trade.wins}W / ${trade.losses}L</span></div>
-      </div>` : ''}`;
-  }
-}
-
-// ── SIGNAL RENDER (dashboard flash) ───────────────────────────
-function renderSignal(sig) {
-  if (!sig) return;
-
-  if (!canSignal && instrumentData[currentInstrument]?.trade?.activeTrade) {
-    const signalArea = document.getElementById('signal-area');
-    if (signalArea) {
-      signalArea.innerHTML = `
-        <div class="signal no">
-          🔒 TRADE IN PROGRESS
-        </div>
-      `;
-    }
-    return;
-  }
-
-  const signalStage = sig.signalStage || (sig.nearMiss ? 'CANDIDATE' : 'CONFIRMED');
-  const isCE = sig.type === 'BUY_CE';
-  const posFactors = (sig.factors || []).filter(f => f.score > 0);
-  const negFactors = (sig.factors || []).filter(f => f.score < 0);
-  const confClass = sig.confidence >= 85 ? 'strong' : sig.confidence >= 70 ? 'moderate' : 'weak';
-
-  let statusBadge = '';
-  let outcomeRow = '';
-  if (sig.tradeStatus === 'WIN') {
-    statusBadge = `<span style="background:var(--green-bg);color:var(--green);border:1px solid var(--green-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">✓ TARGET HIT</span>`;
-    outcomeRow = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-      <span style="color:var(--text3)">Exit Premium</span>
-      <span style="font-family:var(--mono);color:var(--green)">₹${sig.exitPremium?.toFixed(2) || '--'}</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:bold">
-      <span style="color:var(--text2)">P&L (${sig.lots || 15} lots)</span>
-      <span style="font-family:var(--mono);color:var(--green)">+₹${sig.pnl || '--'}</span>
-    </div>`;
-  } else if (sig.tradeStatus === 'LOSS') {
-    statusBadge = `<span style="background:var(--red-bg);color:var(--red);border:1px solid var(--red-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">✗ SL HIT</span>`;
-    outcomeRow = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-      <span style="color:var(--text3)">Exit Premium</span>
-      <span style="font-family:var(--mono);color:var(--red)">₹${sig.exitPremium?.toFixed(2) || '--'}</span>
-    </div>
-    <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:bold">
-      <span style="color:var(--text2)">P&L (${sig.lots || 15} lots)</span>
-      <span style="font-family:var(--mono);color:var(--red)">₹${sig.pnl || '--'}</span>
-    </div>`;
-  } else {
-    statusBadge = `<span style="background:var(--gold-bg);color:var(--gold);border:1px solid var(--gold-dim);padding:3px 12px;border-radius:12px;font-size:10px;font-weight:bold;font-family:var(--mono)">● OPEN</span>`;
-    outcomeRow = `<div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-      <span style="color:var(--text3)">Target</span>
-      <span style="font-family:var(--mono);color:var(--green)">₹${sig.target || '--'}</span>
-      <span style="color:var(--text3)">SL</span>
-      <span style="font-family:var(--mono);color:var(--red)">₹${sig.sl || '--'}</span>
-    </div>`;
-  }
-
-  const signalArea = document.getElementById('signal-area');
-  if (signalArea) {
-    signalArea.innerHTML = `
-      <div class="signal-alert ${isCE ? 'ce' : 'pe'}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-          <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-bottom:4px">
-            ${signalStage} • ${currentInstrument}
-          </div>
-          <div class="signal-type ${isCE ? 'ce' : 'pe'}" style="margin-bottom:0">${isCE ? '▲ BUY CALL' : '▼ BUY PUT'} ${sig.strike || ''}</div>
-          ${statusBadge}
-        </div>
-        <div class="signal-conf">
-          Confidence: <b>${sig.confidence}%</b> — <b>${sig.strength}</b>
-          <div class="conf-bar"><div class="conf-fill ${confClass}" style="width:${sig.confidence}%"></div></div>
-        </div>
-        <div class="signal-factors">
-          ${posFactors.map(f => `<span class="factor-tag factor-pos">+${f.score} ${f.name}</span>`).join('')}
-          ${negFactors.map(f => `<span class="factor-tag factor-neg">${f.score} ${f.name}</span>`).join('')}
-        </div>
-        ${outcomeRow}
-        ${typeof sig.currentPremium === 'number' ? `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border);margin-top:8px;font-size:11px">
-          <span style="color:var(--text3)">Current Premium</span>
-          <span style="font-family:var(--mono);color:var(--gold)">₹${sig.currentPremium.toFixed(2)}</span>
-        </div>` : ''}
-        <div class="signal-meta" style="margin-top:8px">
-          <span>Signal #${sig.signalNum} of 5</span>
-          <span>@ ${sig.timeStr}</span>
-          <span>${currentInstrument}: ${sig.price?.toLocaleString('en-IN')}</span>
-        </div>
-      </div>`;
-  }
-}
-
-function renderHomeSignal() {
-  const data = instrumentData[currentInstrument];
-  if (data?.lastSignal) {
-    renderSignal(data.lastSignal);
-  } else {
-    const signalArea = document.getElementById('signal-area');
-    if (signalArea) signalArea.innerHTML = '';
-  }
-}
-
-// ── SR PANEL ────────────────────────────────────────────────
-function renderSRPanel() {
-  const el = document.getElementById('sr-panel');
-  if (!el) return;
-
-  const data = instrumentData[currentInstrument];
-  const pack = data?.oiWalls || {};
-  const existing = pack.existingSR || {};
-  const buildup = pack.buildupSR || {};
-  const nextLv = pack.nextLevels || {};
-
-  const s = rangeData.support;
-  const r = rangeData.resistance;
-
-  if (!s && !r && !existing.supportNearest && !existing.resistanceNearest) {
-    el.innerHTML = '';
-    return;
-  }
-
-  const atm = data?.atmStrike;
-  const dist = (val) => {
-    if (!val || !atm) return '';
-    const d = val - atm;
-    return `<span style="color:var(--text3);font-size:10px;margin-left:6px">${d > 0 ? '+' : ''}${d}</span>`;
-  };
-
-  const fmtDelta = (d) => {
-    if (typeof d !== 'number') return '--';
-    const up = d >= 0;
-    return `<span style="color:${up ? 'var(--green)' : 'var(--red)'};font-family:var(--mono);font-size:10px">${up ? '+' : ''}${Math.round(d)}</span>`;
-  };
-
-  const pickVal = (primary, fallback1, fallback2) => {
-    const v = primary ?? fallback1 ?? fallback2;
-    return (v === null || typeof v === 'undefined') ? null : v;
-  };
-
-  const showS = pickVal(s, existing.supportNearest, existing.supportMaxOI);
-  const showR = pickVal(r, existing.resistanceNearest, existing.resistanceMaxOI);
-
-  el.innerHTML = `
-    <div class="sec-hdr">
-      <div class="sec-title">SUPPORT / RESISTANCE</div>
-      <div class="sec-line"></div>
-      <div class="sec-tag">${currentInstrument}</div>
-    </div>
-
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <div style="flex:1;background:var(--bg2);border:1px solid rgba(0,200,100,0.25);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">EXISTING SUPPORT</div>
-        <div style="font-family:var(--display);font-size:22px;color:var(--green)">${showS ? showS.toLocaleString('en-IN') : '--'}${dist(showS)}</div>
-        <div style="font-size:9px;color:var(--text3);margin-top:4px;font-family:var(--mono)">
-          MaxOI: ${existing.supportMaxOI ? existing.supportMaxOI.toLocaleString('en-IN') : '--'}
-          • Nearest: ${existing.supportNearest ? existing.supportNearest.toLocaleString('en-IN') : '--'}
-        </div>
-      </div>
-
-      <div style="flex:1;background:var(--bg2);border:1px solid rgba(220,50,50,0.25);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">EXISTING RESISTANCE</div>
-        <div style="font-family:var(--display);font-size:22px;color:var(--red)">${showR ? showR.toLocaleString('en-IN') : '--'}${dist(showR)}</div>
-        <div style="font-size:9px;color:var(--text3);margin-top:4px;font-family:var(--mono)">
-          MaxOI: ${existing.resistanceMaxOI ? existing.resistanceMaxOI.toLocaleString('en-IN') : '--'}
-          • Nearest: ${existing.resistanceNearest ? existing.resistanceNearest.toLocaleString('en-IN') : '--'}
-        </div>
-      </div>
-    </div>
-
-    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px;margin-bottom:10px">
-      <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:6px">BUILDUP (ROLLING ΔOI)</div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;margin-bottom:6px">
-        <span>Support Build: <b>${buildup.supportBuild?.strike ?? '--'}</b> ${fmtDelta(buildup.supportBuild?.delta)}</span>
-        <span>Resistance Build: <b>${buildup.resistanceBuild?.strike ?? '--'}</b> ${fmtDelta(buildup.resistanceBuild?.delta)}</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px">
-        <span>Support Weak: <b>${buildup.supportWeak?.strike ?? '--'}</b> ${fmtDelta(buildup.supportWeak?.delta)}</span>
-        <span>Resistance Weak: <b>${buildup.resistanceWeak?.strike ?? '--'}</b> ${fmtDelta(buildup.resistanceWeak?.delta)}</span>
-      </div>
-      ${(pack.isPinned ? `<div style="margin-top:6px;font-size:10px;font-family:var(--mono);color:var(--gold)">PIN DETECTED @ ${existing.supportMaxOI ?? '--'}</div>` : '')}
-    </div>
-
-    <div style="display:flex;gap:8px;margin-bottom:12px">
-      <div style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">NEXT SUPPORT</div>
-        <div style="font-family:var(--display);font-size:18px;color:var(--gold)">${nextLv.nextSupport ? nextLv.nextSupport.toLocaleString('en-IN') : '--'}</div>
-      </div>
-      <div style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rx);padding:10px 14px">
-        <div style="font-size:9px;color:var(--text3);letter-spacing:2px;font-family:var(--mono);margin-bottom:4px">NEXT RESISTANCE</div>
-        <div style="font-family:var(--display);font-size:18px;color:var(--gold)">${nextLv.nextResistance ? nextLv.nextResistance.toLocaleString('en-IN') : '--'}</div>
-      </div>
-    </div>
-  `;
-}
-
-// ── AUDIO ALERT ──────────────────────────────────────────────
-function playSignalSound(type) {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const freqs = type === 'BUY_CE' ? [523, 659, 784] : [784, 659, 523];
-    freqs.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.15);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
-      osc.start(ctx.currentTime + i * 0.15);
-      osc.stop(ctx.currentTime + i * 0.15 + 0.35);
-    });
-  } catch(e) {}
 }
 
 // ── INIT ─────────────────────────────────────────────────────
@@ -1809,17 +1608,6 @@ setInterval(() => { if (currentTab === 'mkt') renderMarket(); }, 2000);
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 connectWS();
-
-setInterval(() => {
-  if (currentTab === 'dash') {
-    const data = instrumentData[currentInstrument];
-    if (data?.analysis) renderAnalysis();
-    if (data?.lastSignal) renderHomeSignal();
-  }
-  if (currentTab === 'sig') renderSignalsTab();
-}, 5000);
-</script>
-
 </script>
 </body>
 </html>

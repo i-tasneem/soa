@@ -1,13 +1,53 @@
 // ============================================================
-// REGIME DETECTOR
-// ATR-based volatility regime classification
+// REGIME DETECTOR (FIXED — Phase 2)
+// Now instantiable with detect() and reset() instance methods
 // ============================================================
 
 class RegimeDetector {
+  constructor() {
+    // No persistent state needed; classification is stateless per-call
+  }
+
+  /**
+   * Instance method called by InstrumentEngine
+   * @param {Array} candles — candle array (used for ATR calc if indicators lack atr14_MA20)
+   * @param {Object} indicators — full indicator snapshot from calculateIndicators()
+   * @returns {Object} { trend, strength, regime, ... }
+   */
+  detect(candles, indicators) {
+    const atr14 = indicators?.atr14;
+    const atr14_MA20 = indicators?.atr14_MA20;
+    const ivRank = indicators?.ivRank ?? null;
+
+    // If indicators already have regime classification, use it
+    if (indicators?.regime) {
+      return {
+        trend: indicators.regime.trend || 'NEUTRAL',
+        strength: indicators.regime.strength || 0,
+        ...indicators.regime,
+      };
+    }
+
+    // Fallback: compute from ATR
+    const classification = RegimeDetector.classifyRegime(atr14, atr14_MA20, ivRank);
+    return {
+      trend: classification.regime === 'NORMAL' ? 'NEUTRAL' :
+             classification.regime === 'HIGH' || classification.regime === 'ELEVATED' ? 'VOLATILE' :
+             classification.regime === 'EXTREME' ? 'EXTREME' :
+             classification.regime === 'DEAD' ? 'DEAD' : 'NEUTRAL',
+      strength: classification.scorePenalty || 0,
+      ...classification,
+    };
+  }
+
+  reset() {
+    // Stateless — nothing to reset
+  }
+
   /**
    * Calculate Average True Range (ATR) from candle data
-   * @param {Array} candles - Array of {open, high, low, close}
-   * @param {number} period - ATR period (default 14)
+   * @param {Array} candles — Array of {open, high, low, close}
+   * @param {number} period — ATR period (default 14)
    * @returns {number|null} ATR value or null if insufficient data
    */
   static calcATR(candles, period = 14) {
@@ -39,9 +79,9 @@ class RegimeDetector {
 
   /**
    * Classify volatility regime based on ATR and its moving average
-   * @param {number} atr14 - Current 14-period ATR
-   * @param {number} atr14_MA20 - 20-period SMA of ATR14
-   * @param {number|null} ivRank - Optional IV rank (0-100)
+   * @param {number} atr14 — Current 14-period ATR
+   * @param {number} atr14_MA20 — 20-period SMA of ATR14
+   * @param {number|null} ivRank — Optional IV rank (0-100)
    * @returns {Object} Regime classification
    */
   static classifyRegime(atr14, atr14_MA20, ivRank = null) {

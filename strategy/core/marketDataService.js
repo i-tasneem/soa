@@ -1,7 +1,8 @@
 // ============================================================
-// MARKET DATA SERVICE
-// Handles instrument master loading, LTP fetching, option chain
-// Rate-limited API calls to Angel One SmartAPI
+// MARKET DATA SERVICE (FIXED — Phase 2)
+// Strike normalization: Angel One master stores strikes in paise (×100)
+// Name matching: fallback to symbol prefix if exact name fails
+// Rate limiting: fixed burst protection
 // ============================================================
 
 const axios = require('axios');
@@ -10,32 +11,28 @@ const path = require('path');
 const { createExpiryCalculator } = require('../utils/expiryCalculator');
 const logger = require('../../logger');
 
-// Public instrument master URL — NO auth required
 const INSTRUMENT_MASTER_URL = 'https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json';
 
 class MarketDataService {
   constructor(brokerConfig) {
     this.brokerConfig = brokerConfig || {};
-    this.instruments = new Map(); // instrumentId -> { profile, lastLTP, lastChain, tokenMap, expiryCalc, masterFile, masterLoadedAt }
+    this.instruments = new Map();
     this.apiCallCount = 0;
     this.lastApiReset = Date.now();
     this._pollIntervals = new Map();
     this.authToken = null;
-    this._masterCache = null; // Shared across all instruments
+    this._masterCache = null;
     this._masterCacheTime = 0;
   }
 
   async _fetchMaster() {
     const now = Date.now();
-    const cacheDuration = 12 * 60 * 60 * 1000; // 12 hours
+    const cacheDuration = 12 * 60 * 60 * 1000;
 
-    // Use memory cache if fresh
     if (this._masterCache && (now - this._masterCacheTime) < cacheDuration) {
-      logger.info('Using in-memory instrument master cache');
       return this._masterCache;
     }
 
-    // Try file cache
     const cacheFile = path.join(process.cwd(), 'data', 'OpenAPIScripMaster.json');
     try {
       if (fs.existsSync(cacheFile)) {
@@ -48,36 +45,19 @@ class MarketDataService {
           return cached;
         }
       }
-    } catch (e) {
-      logger.warn(`File cache error: ${e.message}`);
-    }
+    } catch (e) { logger.warn(`File cache error: ${e.message}`); }
 
-    // Fetch from public URL
     try {
       logger.info('Fetching instrument master from public URL...');
-      const resp = await axios.get(INSTRUMENT_MASTER_URL, {
-        timeout: 60000,
-        responseType: 'json',
-      });
-
-      if (!Array.isArray(resp.data)) {
-        throw new Error(`Invalid master format: ${typeof resp.data}`);
-      }
-
+      const resp = await axios.get(INSTRUMENT_MASTER_URL, { timeout: 60000, responseType: 'json' });
+      if (!Array.isArray(resp.data)) throw new Error(`Invalid master format: ${typeof resp.data}`);
       this._masterCache = resp.data;
       this._masterCacheTime = now;
-
-      // Save to file cache
       try {
         const dataDir = path.dirname(cacheFile);
-        if (!fs.existsSync(dataDir)) {
-          fs.mkdirSync(dataDir, { recursive: true });
-        }
+        if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(cacheFile, JSON.stringify(resp.data, null, 2));
-      } catch (err) {
-        logger.warn(`Could not write master cache: ${err.message}`);
-      }
-
+      } catch (err) { logger.warn(`Could not write master cache: ${err.message}`); }
       logger.info(`Fetched instrument master: ${resp.data.length} symbols`);
       return resp.data;
     } catch (err) {
@@ -91,36 +71,38 @@ class MarketDataService {
     if (!entry) {
       this.instruments.set(instrumentId, {
         profile: { name: stockName || instrumentId },
-        lastLTP: null,
-        lastChain: null,
-        tokenMap: {},
-        expiryCalc: null,
-        masterFile: null,
-        masterLoadedAt: 0,
+        lastLTP: null, lastChain: null, tokenMap: {}, expiryCalc: null,
+        masterFile: null, masterLoadedAt: 0,
       });
     }
-
     const inst = this.instruments.get(instrumentId);
 
     try {
       const master = await this._fetchMaster();
-	  
-	  console.log('SAMPLE MASTER ENTRY:', JSON.stringify(master[0]));
-console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.name.includes('NIFTY')) || master[100]));
+      const nameUpper = (stockName || inst.profile.name || instrumentId).toUpperCase();
 
+      // Try exact name match first
+      let filtered = master.filter(s =>
+        s.exch_seg === inst.profile.optionExchange &&
+        s.instrumenttype === inst.profile.instrumenttype &&
+        s.name && s.name.toUpperCase() === nameUpper
+      );
 
-      let filtered;
-      if (stockName) {
+      // Fallback: symbol prefix match (e.g., "NIFTY" matches "NIFTY30JUN2623450CE")
+      if (filtered.length === 0) {
         filtered = master.filter(s =>
           s.exch_seg === inst.profile.optionExchange &&
-          s.instrumenttype === 'OPTSTK' &&
-          s.name === stockName
+          s.instrumenttype === inst.profile.instrumenttype &&
+          s.symbol && s.symbol.toUpperCase().startsWith(nameUpper)
         );
-      } else {
+      }
+
+      // Fallback: name includes (for indices like BANKNIFTY)
+      if (filtered.length === 0) {
         filtered = master.filter(s =>
           s.exch_seg === inst.profile.optionExchange &&
-          s.instrumenttype === 'OPTIDX' &&
-          s.name === inst.profile.name
+          s.instrumenttype === inst.profile.instrumenttype &&
+          s.name && s.name.toUpperCase().includes(nameUpper)
         );
       }
 
@@ -128,18 +110,14 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
       inst.masterFile = filtered;
       inst.masterLoadedAt = Date.now();
 
-      // For stocks: auto-extract lotSize and strikeStep
+      // Auto-extract lotSize and strikeStep for stocks
       if (stockName && filtered.length > 0) {
         const first = filtered[0];
-        if (first.lotsize) {
-          inst.profile.lotSize = parseInt(first.lotsize) || 1;
-        }
-        const strikes = [...new Set(filtered.map(s => parseFloat(s.strike))).filter(Number.isFinite)].sort((a, b) => a - b);
+        if (first.lotsize) inst.profile.lotSize = parseInt(first.lotsize) || 1;
+        const strikes = [...new Set(filtered.map(s => parseFloat(s.strike) / 100).filter(Number.isFinite))].sort((a, b) => a - b);
         if (strikes.length >= 2) {
           const diffs = [];
-          for (let i = 1; i < strikes.length; i++) {
-            diffs.push(strikes[i] - strikes[i - 1]);
-          }
+          for (let i = 1; i < strikes.length; i++) diffs.push(strikes[i] - strikes[i - 1]);
           diffs.sort((a, b) => a - b);
           inst.profile.strikeStep = diffs[0] || 1;
         }
@@ -157,12 +135,14 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
     const map = {};
     for (const item of data || []) {
       if (item.token) {
+        // CRITICAL: Angel One stores strikes in paise (×100). Normalize to rupees.
+        const strikeRupees = parseFloat(item.strike) / 100 || 0;
         map[item.token] = {
           token: item.token,
           symbol: item.symbol,
           name: item.name,
           expiry: item.expiry,
-          strike: parseFloat(item.strike) || 0,
+          strike: strikeRupees,
           lotsize: item.lotsize,
           instrumenttype: item.instrumenttype,
           exch_seg: item.exch_seg,
@@ -178,32 +158,28 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
       this.apiCallCount = 0;
       this.lastApiReset = now;
     }
-    if (this.apiCallCount > 15) {
+    if (this.apiCallCount >= 15) {
       await new Promise(r => setTimeout(r, 100));
+      // Re-check after delay
+      if (Date.now() - this.lastApiReset < 1000 && this.apiCallCount >= 15) {
+        await new Promise(r => setTimeout(r, 100));
+      }
     }
     this.apiCallCount++;
   }
 
   async fetchIndexLTP(instrumentId, authToken) {
     await this._rateLimit();
-
     const inst = this.instruments.get(instrumentId);
-    if (!inst || !inst.profile) {
-      throw new Error(`Instrument ${instrumentId} not registered`);
-    }
-
+    if (!inst || !inst.profile) throw new Error(`Instrument ${instrumentId} not registered`);
     const { indexExchange, indexToken } = inst.profile;
-    if (!indexExchange || !indexToken) {
-      throw new Error(`Missing index config for ${instrumentId}`);
-    }
+    if (!indexExchange || !indexToken) throw new Error(`Missing index config for ${instrumentId}`);
 
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
       const resp = await axios.post(url, {
         mode: 'LTP',
-        exchangeTokens: {
-          [indexExchange]: [indexToken],
-        },
+        exchangeTokens: { [indexExchange]: [indexToken] },
       }, {
         headers: {
           'Authorization': `Bearer ${authToken || this.authToken || ''}`,
@@ -239,20 +215,15 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
 
   async fetchOptionChain(instrumentId, spotPrice, authToken) {
     await this._rateLimit();
-
     const inst = this.instruments.get(instrumentId);
-    if (!inst || !inst.profile) {
-      throw new Error(`Instrument ${instrumentId} not registered`);
-    }
+    if (!inst || !inst.profile) throw new Error(`Instrument ${instrumentId} not registered`);
 
     const { strikeStep, optionExchange, name } = inst.profile;
     const expiryCalc = inst.expiryCalc || createExpiryCalculator(inst.profile);
     inst.expiryCalc = expiryCalc;
 
     const expiry = expiryCalc.getCurrentExpiry();
-    if (!expiry) {
-      throw new Error(`Could not calculate expiry for ${instrumentId}`);
-    }
+    if (!expiry) throw new Error(`Could not calculate expiry for ${instrumentId}`);
 
     const isStock = inst.profile.instrumenttype === 'OPTSTK';
     const strikeCount = isStock ? 5 : 10;
@@ -263,7 +234,7 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
     const strikeMap = {};
     for (const [token, info] of Object.entries(inst.tokenMap || {})) {
       if (info.exch_seg === optionExchange && info.expiry === expiry) {
-        const strike = info.strike;
+        const strike = info.strike; // Already normalized to rupees
         if (strike >= minStrike && strike <= maxStrike) {
           tokens.push(token);
           if (!strikeMap[strike]) strikeMap[strike] = { CE: null, PE: null };
@@ -274,23 +245,20 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
     }
 
     if (tokens.length === 0) {
+      logger.warn(`[${instrumentId}] No option tokens matched for expiry ${expiry}, spot ${spotPrice}, range ${minStrike}-${maxStrike}`);
       return { chainData: [], premiums: { ce: null, pe: null }, instrumentId };
     }
 
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
       const batches = [];
-      for (let i = 0; i < tokens.length; i += 50) {
-        batches.push(tokens.slice(i, i + 50));
-      }
+      for (let i = 0; i < tokens.length; i += 50) batches.push(tokens.slice(i, i + 50));
 
       const allResults = [];
       for (const batch of batches) {
         const resp = await axios.post(url, {
           mode: 'FULL',
-          exchangeTokens: {
-            [optionExchange]: batch,
-          },
+          exchangeTokens: { [optionExchange]: batch },
         }, {
           headers: {
             'Authorization': `Bearer ${authToken || this.authToken || ''}`,
@@ -311,10 +279,7 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
         } else {
           fetched = responseData;
         }
-
-        if (Array.isArray(fetched)) {
-          allResults.push(...fetched);
-        }
+        if (Array.isArray(fetched)) allResults.push(...fetched);
       }
 
       const chainData = [];
@@ -323,7 +288,6 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
       for (const strike of strikes) {
         const ceData = allResults.find(r => r.symbolToken === strikeMap[strike].CE);
         const peData = allResults.find(r => r.symbolToken === strikeMap[strike].PE);
-
         chainData.push({
           strikePrice: strike,
           CE: ceData ? {
@@ -346,7 +310,6 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
       }
 
       inst.lastChain = chainData;
-
       const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
       const atmRow = chainData.find(r => r.strikePrice === atmStrike);
       const premiums = {
@@ -369,9 +332,7 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
       try {
         const result = await this.fetchIndexLTP(instrumentId, authToken);
         callback('TICK', result.ltp, instrumentId);
-      } catch (err) {
-        // Silently fail
-      }
+      } catch (err) { /* silently fail */ }
     }, 2000);
 
     const chainInterval = setInterval(async () => {
@@ -380,9 +341,7 @@ console.log('SAMPLE NIFTY ENTRY:', JSON.stringify(master.find(s => s.name && s.n
         if (!inst || !inst.lastLTP) return;
         const result = await this.fetchOptionChain(instrumentId, inst.lastLTP, authToken);
         callback('CHAIN', result.chainData, result.premiums, instrumentId);
-      } catch (err) {
-        // Silently fail
-      }
+      } catch (err) { /* silently fail */ }
     }, 5000);
 
     this._pollIntervals.set(instrumentId, { ltpInterval, chainInterval });

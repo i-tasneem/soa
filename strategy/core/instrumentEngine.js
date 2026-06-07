@@ -1,6 +1,7 @@
 // ============================================================
-// INSTRUMENT ENGINE
+// INSTRUMENT ENGINE (FIXED — Phase 2)
 // Per-instrument signal engine — fully independent, no shared state
+// FIXES: VWAP uses .update(candle) not .tick(ltp); RegimeDetector instantiable
 // ============================================================
 
 const { CandleBuilder } = require('../candleBuilder');
@@ -47,7 +48,7 @@ class InstrumentEngine {
     // Fresh instances — NO shared state with other instruments
     this.expiryCalc = createExpiryCalculator(profile);
     this.candleBuilder = new CandleBuilder();
-    this.vwap = VWAPCalculator ? new VWAPCalculator() : { tick: () => {}, reset: () => {} };
+    this.vwap = VWAPCalculator ? new VWAPCalculator() : { update: () => {}, reset: () => {} };
     this.marketState = new MarketStateEngineClass();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();
@@ -92,7 +93,12 @@ class InstrumentEngine {
   onTick(ltp, timestamp) {
     this._checkDayReset();
     this.candleBuilder.tick(ltp, timestamp);
-    try { this.vwap.tick(ltp, timestamp); } catch (_) {}
+
+    // FIX: VWAPCalculator.update() expects a candle object, not a raw tick
+    const cur5m = this.candleBuilder.getCurrent(5);
+    if (cur5m) {
+      try { this.vwap.update(cur5m); } catch (_) {}
+    }
 
     const candles5m = this.candleBuilder.getCandles(5, 50);
     const candles15m = this.candleBuilder.getCandles(15, 50);
@@ -122,6 +128,7 @@ class InstrumentEngine {
 
     let regime;
     try {
+      // FIX: RegimeDetector.detect() now expects (candles, indicators) and returns { trend, strength }
       regime = this.regimeDetector.detect(candles5m, indicators);
     } catch (err) {
       regime = { trend: 'NEUTRAL', strength: 0 };
