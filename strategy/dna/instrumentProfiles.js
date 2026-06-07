@@ -50,8 +50,52 @@ const BANKNIFTY = {
   ivPercentileMax: 65,
 };
 
+const FINNIFTY = {
+  name: 'FINNIFTY',
+  lotSize: 60,
+  strikeStep: 50,
+  tickSize: 0.05,
+  atrPeriod: 14,
+  atrMultiplier: { target: 0.8, sl: 0.6 },
+  minPremium: 15,
+  maxPremium: 600,
+  optimalWindows: ['10:15-11:30', '13:45-14:45'],
+  ivPercentileMax: 70,
+  gammaRiskExpiryHours: 3,
+  oiWallThreshold: 1.5,
+  first15MinBan: true,
+  lunchBanStart: '12:00',
+  lunchBanEnd: '13:15',
+  maxSignalsDay: 5,
+  maxTradesDay: 3,
+  cooldownMs: 300000,
+};
+
+const BANKEX = {
+  name: 'BANKEX',
+  lotSize: 30,
+  strikeStep: 100,
+  tickSize: 0.05,
+  atrPeriod: 14,
+  atrMultiplier: { target: 0.8, sl: 0.6 },
+  minPremium: 20,
+  maxPremium: 800,
+  optimalWindows: ['09:30-11:30', '13:30-15:00'],
+  ivPercentileMax: 70,
+  gammaRiskExpiryHours: 3,
+  oiWallThreshold: 1.5,
+  first15MinBan: true,
+  lunchBanStart: '12:00',
+  lunchBanEnd: '13:15',
+  maxSignalsDay: 5,
+  maxTradesDay: 3,
+  cooldownMs: 300000,
+};
+
 module.exports = {
   SENSEX,
   NIFTY,
   BANKNIFTY,
+  FINNIFTY,
+  BANKEX,
 };

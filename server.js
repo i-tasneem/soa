@@ -14,7 +14,21 @@ const fs        = require('fs');
 const cors      = require('cors');
 const { authenticator } = require('otplib');
 const config       = require('./config');
+// ── INSTRUMENT CONFIGURATION ─────────────────────────────────
+const INSTRUMENT_CONFIG = {
+  SENSEX:    { name:'SENSEX',    displayName:'Sensex',     exchange:'BSE', optExchange:'BFO', indexToken:'99919000', wsExchangeType:3, file:'instruments_sensex.json',    step:100 },
+  NIFTY:     { name:'NIFTY',     displayName:'Nifty',      exchange:'NSE', optExchange:'NFO', indexToken:'99926000', wsExchangeType:1, file:'instruments_nifty.json',     step:50  },
+  BANKNIFTY: { name:'BANKNIFTY', displayName:'Bank Nifty', exchange:'NSE', optExchange:'NFO', indexToken:'99926009', wsExchangeType:1, file:'instruments_banknifty.json', step:100 },
+  FINNIFTY:  { name:'FINNIFTY',  displayName:'Fin Nifty',  exchange:'NSE', optExchange:'NFO', indexToken:'99926037', wsExchangeType:1, file:'instruments_finnifty.json',  step:50  },
+  BANKEX:    { name:'BANKEX',    displayName:'Bankex',     exchange:'BSE', optExchange:'BFO', indexToken:'99919012', wsExchangeType:3, file:'instruments_bankex.json',    step:100 },
+};
+
+const ACTIVE_INSTRUMENT = (config.activeInstrument || 'SENSEX').toUpperCase();
+const INST = INSTRUMENT_CONFIG[ACTIVE_INSTRUMENT] || INSTRUMENT_CONFIG.SENSEX;
+
+
 const orchestrator = require('./strategy/orchestrator');
+const { MultiInstrumentManager, INSTRUMENT_CONFIG } = require('./strategy/multiInstrumentManager');
 const database     = require('./database');
 const health       = require('./health');
 const logger       = require('./logger');
@@ -50,7 +64,7 @@ const EXPIRY_CACHE_TTL = 60 * 1000;  // 1 minute in milliseconds
 let lastExpiryResetDate = null;  // Track day boundaries
 
 const BASE             = 'https://apiconnect.angelbroking.com';
-const INSTRUMENTS_PATH = path.join(__dirname, 'data', 'instruments.json');
+const INSTRUMENTS_PATH = path.join(__dirname, 'data', INST.file);
 
 // ── HEADERS ──────────────────────────────────────────────────
 function getHeaders() {
@@ -87,13 +101,13 @@ async function _doLoadInstruments() {
   // ── Try local file first (Railway build pre-downloads this) ──
   if (fs.existsSync(INSTRUMENTS_PATH)) {
     try {
-      console.log('📋 Loading SENSEX instruments from local file...');
+      console.log(`📋 Loading ${INST.displayName} instruments from local file...`);
       const data = JSON.parse(fs.readFileSync(INSTRUMENTS_PATH, 'utf8'));
       if (Array.isArray(data) && data.length > 0) {
         tokenMap = {};
         data.forEach(i => { tokenMap[i.token] = i; });
         const expiries = [...new Set(data.map(i => i.expiry))].sort();
-        console.log(`✅ Loaded ${data.length} SENSEX instruments from disk`);
+        console.log(`✅ Loaded ${data.length} ${INST.displayName} instruments from disk`);
         console.log(`📅 Available expiries: ${expiries.slice(0, 8).join(', ')}`);
         if (data[0]) console.log(`🔎 Sample: ${JSON.stringify({ token: data[0].token, symbol: data[0].symbol, expiry: data[0].expiry, strike: data[0].strike })}`);
         return; // success — no network call needed
@@ -109,7 +123,7 @@ async function _doLoadInstruments() {
 
   // ── Fallback: fetch from network ────────────────────────────
   try {
-    console.log('📋 Fetching SENSEX instruments from network (may be slow on Railway)...');
+    console.log(`📋 Fetching ${INST.displayName} instruments from network (may be slow on Railway)...`);
     const res = await axios.get(
       'https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json',
       {
@@ -124,16 +138,16 @@ async function _doLoadInstruments() {
     if (!Array.isArray(res.data)) throw new Error('Unexpected response — not an array');
 
     const sensex = res.data.filter(i =>
-      i.exch_seg === 'BFO' && i.name === 'SENSEX' && i.instrumenttype === 'OPTIDX'
+      i.exch_seg === INST.optExchange && i.name === INST.name && i.instrumenttype === 'OPTIDX'
     );
 
-    if (sensex.length === 0) throw new Error('No SENSEX instruments in response');
+    if (sensex.length === 0) throw new Error(`No ${INST.name} instruments in response`);
 
     tokenMap = {};
     sensex.forEach(i => { tokenMap[i.token] = i; });
 
     const expiries = [...new Set(sensex.map(i => i.expiry))].sort();
-    console.log(`✅ Loaded ${sensex.length} SENSEX instruments from network`);
+    console.log(`✅ Loaded ${sensex.length} ${INST.displayName} instruments from network`);
     console.log(`📅 Available expiries: ${expiries.slice(0, 8).join(', ')}`);
 
     // Cache to disk for next startup
@@ -162,7 +176,7 @@ async function fetchHistoricalCandles(interval, fromDate, toDate, retries = 2) {
     try {
       const res = await axios.post(
         `${BASE}/rest/secure/angelbroking/historical/v1/getCandleData`,
-        { exchange: 'BSE', symboltoken: '99919000', interval, fromdate: fromDate, todate: toDate },
+        { exchange: INST.exchange, symboltoken: INST.indexToken, interval, fromdate: fromDate, todate: toDate },
         { headers: getHeaders(), timeout: 15000 }
       );
       if (res.data.status && res.data.data) {
@@ -312,6 +326,47 @@ broadcast({
 };
 
 // Day reset: wait 5s for token to stabilize before fetching candles
+
+// ── MULTI-INSTRUMENT MODE ───────────────────────────────────
+const MULTI_INSTRUMENTS = process.env.MULTI_INSTRUMENT
+  ? process.env.MULTI_INSTRUMENT.split(',').map(s => s.trim().toUpperCase()).filter(s => INSTRUMENT_CONFIG[s])
+  : null;
+
+let manager = null;
+let activeSessions = null;
+
+if (MULTI_INSTRUMENTS && MULTI_INSTRUMENTS.length > 1) {
+  console.log(`🔀 Multi-instrument mode: ${MULTI_INSTRUMENTS.join(', ')}`);
+  manager = new MultiInstrumentManager(MULTI_INSTRUMENTS);
+  activeSessions = manager.getAllSessions();
+
+  // Wire callbacks for all sessions
+  for (const session of activeSessions) {
+    session.onSignal = (signal) => {
+      const serverTime = Date.now();
+      signal.serverTime = serverTime;
+      broadcast({ type: 'SIGNAL', data: signal, instrument: signal.instrument, serverTime });
+      console.log(`🚨 [${signal.instrument}] Signal: ${signal.type} ${signal.confidence}%`);
+    };
+    session.onTradeOpen = (trade) => {
+      broadcast({ type: 'TRADE_OPEN', data: trade, instrument: trade.instrument });
+      broadcast({ type: 'TRADE_STATUS', activeTrade: trade, canOpenNewSignal: false, instrument: trade.instrument });
+    };
+    session.onTradeClose = (trade) => {
+      broadcast({ type: 'TRADE_CLOSED', data: trade, instrument: trade.instrument });
+      broadcast({ type: 'TRADE_STATUS', activeTrade: null, canOpenNewSignal: true, instrument: trade.instrument });
+    };
+    session.onUpdate = (update) => {
+      broadcast({ type: 'ANALYSIS', data: update, instrument: update.instrument });
+    };
+    session.onSetupAbort = (abort) => {
+      broadcast({ type: 'SETUP_ABORT', data: abort, instrument: abort.setup?.instrument });
+    };
+  }
+} else {
+  console.log(`📌 Single-instrument mode: ${INST.name}`);
+}
+
 orchestrator.onDayReset = async () => {
   console.log('🌅 Day reset — waiting 5s for auth token to stabilize...');
   
@@ -590,13 +645,11 @@ async function fetchOptionChain() {
       return null;
     }
     const atm    = liveData.atmStrike;
-    const strikes = [
-					atm - 1000, atm - 900, atm - 800, atm - 700, atm - 600,
-					atm - 500,  atm - 400, atm - 300, atm - 200, atm - 100,
-					atm,
-					atm + 100,  atm + 200, atm + 300, atm + 400, atm + 500,
-					atm + 600,  atm + 700, atm + 800, atm + 900, atm + 1000,
-					];
+    const strikes = [];
+    const range = 10; // number of strikes above/below
+    for (let i = range; i > 0; i--) strikes.push(atm - (i * INST.step));
+    strikes.push(atm);
+    for (let i = 1; i <= range; i++) strikes.push(atm + (i * INST.step));
 
     const chainData = [];
     for (const strike of strikes) {		
@@ -800,13 +853,22 @@ function connectAngelWebSocket() {
 
   isWSConnecting = false;
 
+  const tokenList = [];
+  if (manager) {
+    for (const name of MULTI_INSTRUMENTS) {
+      const cfg = INSTRUMENT_CONFIG[name];
+      tokenList.push({ exchangeType: cfg.wsExchangeType, tokens: [cfg.indexToken] });
+    }
+  } else {
+    tokenList.push({ exchangeType: INST.wsExchangeType, tokens: [INST.indexToken] });
+  }
   angelWS.send(JSON.stringify({
     correlationID: 'soa',
     action: 1,
-    params: { mode: 3, tokenList: [{ exchangeType: 3, tokens: ['99919000'] }] }
+    params: { mode: 3, tokenList }
   }));
 
-  console.log('📡 Subscribed to Sensex feed');
+  console.log(`📡 Subscribed to ${manager ? MULTI_INSTRUMENTS.join(', ') : INST.displayName} feed`);
 });
   angelWS.on('message', (data) => {
     try {
@@ -1113,6 +1175,15 @@ function isMarketOpenIST() {
  
  function buildInitState() {
    const today = getTodayIST();
+   if (manager) {
+     return {
+       authStatus: authToken ? 'connected' : 'disconnected',
+       multiInstrument: true,
+       instruments: MULTI_INSTRUMENTS,
+       sessions: manager.getAllSnapshots(),
+       todaySignalHistory: database.getSignalsByDate(today, 100),
+     };
+   }
    const todaySignals = database.getSignalsByDate
      ? database.getSignalsByDate(today, 100)
      : database.getRecentSignals(100).filter(s => s.date === today);
@@ -1235,12 +1306,16 @@ setInterval(async () => {
 
   lastSensex = ltp;
   liveData.sensex = ltp;
-  liveData.atmStrike = Math.round(ltp / 100) * 100;
+  liveData.atmStrike = Math.round(ltp / INST.step) * INST.step;
 
-  orchestrator.onTick(ltp);
+  if (manager) {
+    manager.routeTick(INST.name, ltp);
+  } else {
+    orchestrator.onTick(ltp);
+  }
 
   if (clients.size > 0) {
-    broadcast({ type: 'SENSEX_LTP', ltp });
+    broadcast({ type: 'SENSEX_LTP', ltp, instrument: INST.name }); // type kept for frontend compat
   }
 
   health.setServerState({
@@ -1266,8 +1341,19 @@ setInterval(async () => {
 
   const chain = await fetchOptionChain();
 
-  if (chain && clients.size > 0) {
-    broadcast({ type: 'OPTION_CHAIN', data: chain });
+  if (chain) {
+    if (manager) {
+      manager.routeOptionChain(INST.name, chain, {
+        atm: { strike: liveData.atmStrike, call: chain.find(r => r.strikePrice === liveData.atmStrike)?.CE?.ltp, put: chain.find(r => r.strikePrice === liveData.atmStrike)?.PE?.ltp },
+        exec: {
+          ce: { strike: liveData.atmStrike, premium: chain.find(r => r.strikePrice === liveData.atmStrike)?.CE?.ltp, token: chain.find(r => r.strikePrice === liveData.atmStrike)?.CE?.token, expiry: chain.find(r => r.strikePrice === liveData.atmStrike)?.CE?.expiry },
+          pe: { strike: liveData.atmStrike, premium: chain.find(r => r.strikePrice === liveData.atmStrike)?.PE?.ltp, token: chain.find(r => r.strikePrice === liveData.atmStrike)?.PE?.token, expiry: chain.find(r => r.strikePrice === liveData.atmStrike)?.PE?.expiry },
+        }
+      });
+    }
+    if (clients.size > 0) {
+      broadcast({ type: 'OPTION_CHAIN', data: chain, instrument: INST.name });
+    }
   }
 }, 5000);
 
@@ -1292,6 +1378,7 @@ server.listen(PORT, config.server.host, () => {
   console.log('');
   console.log('╔══════════════════════════════════════════╗');
   console.log('║      SOA TRADER — Local Server v2.2      ║');
+  console.log(`║   Instrument: ${INST.displayName.padEnd(26)}║`);
   console.log(`║   Listening on port ${PORT}                  ║`);
   console.log('╚══════════════════════════════════════════╝');
   console.log('');
