@@ -16,14 +16,10 @@ const logger = require('./logger');
 const db = require('./database');
 const health = require('./health');
 
-// NEW: Multi-instrument imports
+// Multi-instrument imports
 const multiOrchestrator = require('./strategy/core/multiOrchestrator');
 const profiles = require('./strategy/dna/instrumentProfiles');
 const { StockScanner } = require('./strategy/stockScanner');
-
-// Legacy singletons (kept for backward compat in some contexts)
-// const orchestrator = require('./strategy/orchestrator'); // REMOVED
-// const oiEngine = require('./strategy/oiEngine'); // REMOVED
 
 const app = express();
 const server = http.createServer(app);
@@ -38,11 +34,25 @@ let refreshToken = null;
 let feedToken = null;
 let jwtToken = null;
 let userProfile = null;
+let scanner = null;
+
+// ── UNHANDLED ERRORS ───────────────────────────────────────
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught Exception: ${err.message}\n${err.stack}`);
+  // Keep running — don't exit on uncaught exceptions in production
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
+});
 
 // ── AUTHENTICATION ─────────────────────────────────────────
 async function authenticate() {
+  logger.info('Starting Angel One authentication...');
   try {
     const totp = otplib.authenticator.generate(config.angel.totpSecret);
+    logger.info(`TOTP generated, attempting login...`);
+
     const resp = await axios.post(`${config.angel.baseUrl}/rest/auth/angelbroking/user/v1/loginByPassword`, {
       clientcode: config.angel.clientId,
       password: config.angel.password,
@@ -57,6 +67,7 @@ async function authenticate() {
         'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
         'X-MACAddress': 'MAC_ADDRESS',
       },
+      timeout: 30000,
     });
 
     if (resp.data && resp.data.status && resp.data.data) {
@@ -68,8 +79,10 @@ async function authenticate() {
 
       // Set auth token on multi-orchestrator
       multiOrchestrator.setAuthToken(authToken);
-      multiOrchestrator.marketData.brokerConfig.jwtToken = jwtToken;
-      multiOrchestrator.marketData.brokerConfig.baseUrl = config.angel.baseUrl;
+      if (multiOrchestrator.marketData) {
+        multiOrchestrator.marketData.brokerConfig.jwtToken = jwtToken;
+        multiOrchestrator.marketData.brokerConfig.baseUrl = config.angel.baseUrl;
+      }
 
       logger.info('Angel One authenticated successfully');
       broadcastToAllClients({ type: 'AUTH_STATUS', status: 'connected', message: 'Angel One Live' });
@@ -82,33 +95,50 @@ async function authenticate() {
   } catch (err) {
     logger.error(`Authentication error: ${err.message}`);
     broadcastToAllClients({ type: 'AUTH_STATUS', status: 'error', message: err.message });
+    // Retry auth after 60 seconds
+    setTimeout(authenticate, 60000);
   }
 }
 
 function initializeInstruments() {
-  // Add all configured index instruments
+  logger.info(`Initializing instruments: ${config.activeInstruments.join(', ')}`);
+
   for (const instId of config.activeInstruments) {
     const profile = profiles[instId];
     if (profile) {
-      multiOrchestrator.addInstrument(instId, profile);
+      try {
+        multiOrchestrator.addInstrument(instId, profile);
+        logger.info(`Added instrument: ${instId}`);
+      } catch (err) {
+        logger.error(`Failed to add instrument ${instId}: ${err.message}`);
+      }
+    } else {
+      logger.warn(`No profile found for instrument: ${instId}`);
     }
   }
 
   // Start stock scanner if enabled
   if (config.enableStockOptions) {
-    const scanner = new StockScanner(multiOrchestrator.marketData, multiOrchestrator);
-    scanner.start();
+    try {
+      scanner = new StockScanner(multiOrchestrator.marketData, multiOrchestrator);
+      scanner.start();
+      logger.info('Stock scanner started');
+    } catch (err) {
+      logger.error(`Failed to start stock scanner: ${err.message}`);
+    }
   }
 }
 
 // ── WEBSOCKET BROADCAST ────────────────────────────────────
 function broadcastToAllClients(msg) {
   const data = JSON.stringify(msg);
+  let sent = 0;
   wss.clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(data); } catch (_) {}
+      try { ws.send(data); sent++; } catch (_) {}
     }
   });
+  return sent;
 }
 
 // Wire multi-orchestrator broadcast to WebSocket
@@ -120,32 +150,36 @@ multiOrchestrator.externalBroadcast = (msg) => {
 wss.on('connection', (ws) => {
   logger.info('Client connected');
 
-  // Send INIT_STATE with all instruments
-  ws.send(JSON.stringify({
-    type: 'INIT_STATE',
-    data: {
-      authStatus: authToken ? 'connected' : 'disconnected',
-      instruments: multiOrchestrator.getAllSnapshots(),
-      config: { trading: config.trading, market: config.market },
-    },
-  }));
+  try {
+    // Send INIT_STATE with all instruments
+    ws.send(JSON.stringify({
+      type: 'INIT_STATE',
+      data: {
+        authStatus: authToken ? 'connected' : 'disconnected',
+        instruments: multiOrchestrator.getAllSnapshots(),
+        config: { trading: config.trading, market: config.market },
+      },
+    }));
+  } catch (err) {
+    logger.error(`WS init send error: ${err.message}`);
+  }
 
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw);
       if (msg.type === 'GET_INIT_STATE') {
-        ws.send(JSON.stringify({
-          type: 'INIT_STATE',
-          data: {
-            authStatus: authToken ? 'connected' : 'disconnected',
-            instruments: multiOrchestrator.getAllSnapshots(),
-            config: { trading: config.trading, market: config.market },
-          },
-        }));
-      }
-      if (msg.type === 'GET_OPTION_CHAIN') {
-        // Client requesting option chain — handled by polling, but can trigger immediate
-        // No-op for now, polling handles it
+        try {
+          ws.send(JSON.stringify({
+            type: 'INIT_STATE',
+            data: {
+              authStatus: authToken ? 'connected' : 'disconnected',
+              instruments: multiOrchestrator.getAllSnapshots(),
+              config: { trading: config.trading, market: config.market },
+            },
+          }));
+        } catch (err) {
+          logger.error(`WS GET_INIT_STATE send error: ${err.message}`);
+        }
       }
     } catch (err) {
       logger.warn('WS message parse error');
@@ -155,11 +189,19 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     logger.info('Client disconnected');
   });
+
+  ws.on('error', (err) => {
+    logger.error(`WS client error: ${err.message}`);
+  });
 });
 
 // ── REST API ───────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json(health.getStatus());
+  try {
+    res.json(health.getStatus());
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
 });
 
 app.get('/api/status', (req, res) => {
@@ -227,24 +269,41 @@ app.post('/api/auth/refresh', async (req, res) => {
 });
 
 // ── START SERVER ───────────────────────────────────────────
-server.listen(config.server.port, config.server.host, () => {
-  logger.info(`SOA Trader server running on http://${config.server.host}:${config.server.port}`);
-  authenticate();
+const PORT = config.server.port;
+const HOST = config.server.host;
+
+server.listen(PORT, HOST, () => {
+  logger.info(`SOA Trader server running on http://${HOST}:${PORT}`);
+  logger.info(`Active instruments: ${config.activeInstruments.join(', ')}`);
+  logger.info(`Stock options enabled: ${config.enableStockOptions}`);
+
+  // Start auth after server is listening
+  setTimeout(() => {
+    authenticate();
+  }, 1000);
+});
+
+server.on('error', (err) => {
+  logger.error(`Server error: ${err.message}`);
+  process.exit(1);
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
+function gracefulShutdown(signal) {
+  logger.info(`${signal} received, shutting down gracefully`);
   server.close(() => {
-    db.close();
+    logger.info('HTTP server closed');
+    try {
+      if (db && typeof db.close === 'function') {
+        db.close();
+        logger.info('Database closed');
+      }
+    } catch (err) {
+      logger.error(`DB close error: ${err.message}`);
+    }
     process.exit(0);
   });
-});
+}
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  server.close(() => {
-    db.close();
-    process.exit(0);
-  });
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

@@ -13,7 +13,7 @@ const logger = require('../../logger');
 class MarketDataService {
   constructor(brokerConfig) {
     this.brokerConfig = brokerConfig || {};
-    this.instruments = new Map(); // instrumentId -> { profile, lastLTP, lastChain, tokenMap, expiryCalc, masterFile, masterLoadedAt }
+    this.instruments = new Map();
     this.apiCallCount = 0;
     this.lastApiReset = Date.now();
     this._pollIntervals = new Map();
@@ -22,7 +22,6 @@ class MarketDataService {
   async loadInstrumentMaster(instrumentId, stockName = null) {
     const entry = this.instruments.get(instrumentId);
     if (!entry) {
-      // Create entry if not exists (for stock scanner adding new instruments)
       this.instruments.set(instrumentId, {
         profile: { name: stockName || instrumentId },
         lastLTP: null,
@@ -36,28 +35,40 @@ class MarketDataService {
 
     const inst = this.instruments.get(instrumentId);
     const cacheFile = path.join(process.cwd(), 'data', `instruments_${instrumentId}.json`);
-    const cacheDuration = 12 * 60 * 60 * 1000; // 12 hours
+    const cacheDuration = 12 * 60 * 60 * 1000;
+
+    // Ensure data directory exists
+    try {
+      const dataDir = path.dirname(cacheFile);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+    } catch (err) {
+      logger.warn(`[${instrumentId}] Could not create data directory: ${err.message}`);
+    }
 
     // Check cache
     if (fs.existsSync(cacheFile)) {
-      const stat = fs.statSync(cacheFile);
-      if (Date.now() - stat.mtime.getTime() < cacheDuration) {
-        try {
+      try {
+        const stat = fs.statSync(cacheFile);
+        if (Date.now() - stat.mtime.getTime() < cacheDuration) {
           const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
           inst.tokenMap = this._buildTokenMap(cached);
           inst.masterFile = cached;
           inst.masterLoadedAt = Date.now();
           logger.info(`Loaded cached instrument master for ${instrumentId}`);
           return cached;
-        } catch (e) {
-          logger.warn(`Cache parse error for ${instrumentId}: ${e.message}`);
         }
+      } catch (e) {
+        logger.warn(`Cache parse error for ${instrumentId}: ${e.message}`);
       }
     }
 
     // Fetch from Angel One
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/master/getAllScript/`;
+      logger.info(`[${instrumentId}] Fetching instrument master from Angel One...`);
+
       const resp = await axios.get(url, {
         headers: {
           'Authorization': `Bearer ${this.brokerConfig.jwtToken || ''}`,
@@ -79,14 +90,12 @@ class MarketDataService {
 
       let filtered;
       if (stockName) {
-        // Stock option
         filtered = master.filter(s =>
           s.exch_seg === inst.profile.optionExchange &&
           s.instrumenttype === 'OPTSTK' &&
           s.name === stockName
         );
       } else {
-        // Index option
         filtered = master.filter(s =>
           s.exch_seg === inst.profile.optionExchange &&
           s.instrumenttype === 'OPTIDX' &&
@@ -94,11 +103,11 @@ class MarketDataService {
         );
       }
 
-      // Ensure data directory exists
-      if (!fs.existsSync(path.dirname(cacheFile))) {
-        fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      try {
+        fs.writeFileSync(cacheFile, JSON.stringify(filtered, null, 2));
+      } catch (err) {
+        logger.warn(`[${instrumentId}] Could not write cache: ${err.message}`);
       }
-      fs.writeFileSync(cacheFile, JSON.stringify(filtered, null, 2));
 
       inst.tokenMap = this._buildTokenMap(filtered);
       inst.masterFile = filtered;
@@ -110,7 +119,6 @@ class MarketDataService {
         if (first.lotsize) {
           inst.profile.lotSize = parseInt(first.lotsize) || 1;
         }
-        // Extract strikeStep from strike differences
         const strikes = [...new Set(filtered.map(s => parseFloat(s.strike))).filter(Number.isFinite)].sort((a, b) => a - b);
         if (strikes.length >= 2) {
           const diffs = [];
@@ -133,6 +141,7 @@ class MarketDataService {
           inst.tokenMap = this._buildTokenMap(cached);
           inst.masterFile = cached;
           inst.masterLoadedAt = Date.now();
+          logger.info(`[${instrumentId}] Using stale cache as fallback`);
           return cached;
         } catch (_) {}
       }
@@ -232,13 +241,11 @@ class MarketDataService {
       throw new Error(`Could not calculate expiry for ${instrumentId}`);
     }
 
-    // Determine strike range
     const isStock = inst.profile.instrumenttype === 'OPTSTK';
     const strikeCount = isStock ? 5 : 10;
     const minStrike = Math.round((spotPrice - strikeStep * strikeCount) / strikeStep) * strikeStep;
     const maxStrike = Math.round((spotPrice + strikeStep * strikeCount) / strikeStep) * strikeStep;
 
-    // Build token list from tokenMap
     const tokens = [];
     const strikeMap = {};
     for (const [token, info] of Object.entries(inst.tokenMap || {})) {
@@ -254,13 +261,11 @@ class MarketDataService {
     }
 
     if (tokens.length === 0) {
-      // Fallback: return empty chain
       return { chainData: [], premiums: { ce: null, pe: null }, instrumentId };
     }
 
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
-      // Batch tokens (max 50 per call)
       const batches = [];
       for (let i = 0; i < tokens.length; i += 50) {
         batches.push(tokens.slice(i, i + 50));
@@ -289,7 +294,6 @@ class MarketDataService {
         }
       }
 
-      // Build chain data
       const chainData = [];
       const strikes = Object.keys(strikeMap).map(Number).sort((a, b) => a - b);
 
@@ -320,7 +324,6 @@ class MarketDataService {
 
       inst.lastChain = chainData;
 
-      // Find ATM premiums
       const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
       const atmRow = chainData.find(r => r.strikePrice === atmStrike);
       const premiums = {
@@ -337,7 +340,6 @@ class MarketDataService {
   }
 
   startPolling(instrumentId, authToken, callback) {
-    // Stop existing polling if any
     this.stopPolling(instrumentId);
 
     const ltpInterval = setInterval(async () => {
