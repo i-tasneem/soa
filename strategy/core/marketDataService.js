@@ -13,10 +13,11 @@ const logger = require('../../logger');
 class MarketDataService {
   constructor(brokerConfig) {
     this.brokerConfig = brokerConfig || {};
-    this.instruments = new Map();
+    this.instruments = new Map(); // instrumentId -> { profile, lastLTP, lastChain, tokenMap, expiryCalc, masterFile, masterLoadedAt }
     this.apiCallCount = 0;
     this.lastApiReset = Date.now();
     this._pollIntervals = new Map();
+    this.authToken = null;  // ← set via setAuthToken()
   }
 
   async loadInstrumentMaster(instrumentId, stockName = null) {
@@ -35,7 +36,7 @@ class MarketDataService {
 
     const inst = this.instruments.get(instrumentId);
     const cacheFile = path.join(process.cwd(), 'data', `instruments_${instrumentId}.json`);
-    const cacheDuration = 12 * 60 * 60 * 1000;
+    const cacheDuration = 12 * 60 * 60 * 1000; // 12 hours
 
     // Ensure data directory exists
     try {
@@ -56,11 +57,11 @@ class MarketDataService {
           inst.tokenMap = this._buildTokenMap(cached);
           inst.masterFile = cached;
           inst.masterLoadedAt = Date.now();
-          logger.info(`Loaded cached instrument master for ${instrumentId}`);
+          logger.info(`[${instrumentId}] Loaded cached instrument master: ${cached.length} symbols`);
           return cached;
         }
       } catch (e) {
-        logger.warn(`Cache parse error for ${instrumentId}: ${e.message}`);
+        logger.warn(`[${instrumentId}] Cache parse error: ${e.message}`);
       }
     }
 
@@ -68,10 +69,11 @@ class MarketDataService {
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/master/getAllScript/`;
       logger.info(`[${instrumentId}] Fetching instrument master from Angel One...`);
+      logger.info(`[${instrumentId}] Auth token present: ${!!this.authToken}`);
 
       const resp = await axios.get(url, {
         headers: {
-          'Authorization': `Bearer ${this.brokerConfig.jwtToken || ''}`,
+          'Authorization': `Bearer ${this.authToken || this.brokerConfig.jwtToken || ''}`,  // ← FIXED: use this.authToken
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'X-UserType': 'USER',
@@ -83,8 +85,22 @@ class MarketDataService {
         timeout: 30000,
       });
 
-      const master = resp.data;
-      if (!master || !Array.isArray(master)) {
+      logger.info(`[${instrumentId}] Master API response status: ${resp.status}`);
+      logger.info(`[${instrumentId}] Master API response keys: ${Object.keys(resp.data || {}).join(', ')}`);
+
+      // Angel One returns { status: true, message: "SUCCESS", data: [...] }
+      // OR { success: true, data: [...] }
+      let master;
+      const responseData = resp.data;
+
+      if (responseData && (responseData.status === true || responseData.success === true) && Array.isArray(responseData.data)) {
+        master = responseData.data;
+        logger.info(`[${instrumentId}] Extracted ${master.length} instruments from response.data.data`);
+      } else if (Array.isArray(responseData)) {
+        master = responseData;
+        logger.info(`[${instrumentId}] Response is direct array: ${master.length} instruments`);
+      } else {
+        logger.error(`[${instrumentId}] Unexpected response format: ${JSON.stringify(responseData).slice(0, 200)}`);
         throw new Error('Invalid master data');
       }
 
@@ -130,10 +146,13 @@ class MarketDataService {
         }
       }
 
-      logger.info(`Loaded instrument master for ${instrumentId}: ${filtered.length} symbols`);
+      logger.info(`[${instrumentId}] Loaded instrument master: ${filtered.length} symbols`);
       return filtered;
     } catch (err) {
-      logger.error(`Failed to load instrument master for ${instrumentId}: ${err.message}`);
+      logger.error(`[${instrumentId}] Failed to load instrument master: ${err.message}`);
+      if (err.response) {
+        logger.error(`[${instrumentId}] HTTP ${err.response.status}: ${JSON.stringify(err.response.data).slice(0, 300)}`);
+      }
       // Try to use cache even if expired
       if (fs.existsSync(cacheFile)) {
         try {
@@ -141,7 +160,7 @@ class MarketDataService {
           inst.tokenMap = this._buildTokenMap(cached);
           inst.masterFile = cached;
           inst.masterLoadedAt = Date.now();
-          logger.info(`[${instrumentId}] Using stale cache as fallback`);
+          logger.info(`[${instrumentId}] Using stale cache as fallback: ${cached.length} symbols`);
           return cached;
         } catch (_) {}
       }
@@ -202,7 +221,7 @@ class MarketDataService {
         },
       }, {
         headers: {
-          'Authorization': `Bearer ${authToken}`,
+          'Authorization': `Bearer ${authToken || this.authToken || ''}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'X-UserType': 'USER',
@@ -211,15 +230,24 @@ class MarketDataService {
         timeout: 10000,
       });
 
-      const data = resp.data;
-      if (data && data.data && data.data.fetched && data.data.fetched.length > 0) {
-        const ltp = parseFloat(data.data.fetched[0].ltp);
+      const responseData = resp.data;
+      let fetched;
+      if (responseData && (responseData.status === true || responseData.success === true) && responseData.data) {
+        fetched = responseData.data.fetched || responseData.data;
+      } else if (responseData && responseData.fetched) {
+        fetched = responseData.fetched;
+      } else {
+        fetched = responseData;
+      }
+
+      if (Array.isArray(fetched) && fetched.length > 0) {
+        const ltp = parseFloat(fetched[0].ltp);
         inst.lastLTP = ltp;
         return { ltp, instrumentId };
       }
       throw new Error('No LTP data');
     } catch (err) {
-      logger.error(`LTP fetch error for ${instrumentId}: ${err.message}`);
+      logger.error(`[${instrumentId}] LTP fetch error: ${err.message}`);
       throw err;
     }
   }
@@ -280,7 +308,7 @@ class MarketDataService {
           },
         }, {
           headers: {
-            'Authorization': `Bearer ${authToken}`,
+            'Authorization': `Bearer ${authToken || this.authToken || ''}`,
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'X-UserType': 'USER',
@@ -289,8 +317,18 @@ class MarketDataService {
           timeout: 15000,
         });
 
-        if (resp.data && resp.data.data && resp.data.data.fetched) {
-          allResults.push(...resp.data.data.fetched);
+        const responseData = resp.data;
+        let fetched;
+        if (responseData && (responseData.status === true || responseData.success === true) && responseData.data) {
+          fetched = responseData.data.fetched || responseData.data;
+        } else if (responseData && responseData.fetched) {
+          fetched = responseData.fetched;
+        } else {
+          fetched = responseData;
+        }
+
+        if (Array.isArray(fetched)) {
+          allResults.push(...fetched);
         }
       }
 
@@ -334,7 +372,7 @@ class MarketDataService {
 
       return { chainData, premiums, instrumentId };
     } catch (err) {
-      logger.error(`Option chain fetch error for ${instrumentId}: ${err.message}`);
+      logger.error(`[${instrumentId}] Option chain fetch error: ${err.message}`);
       throw err;
     }
   }
@@ -376,6 +414,7 @@ class MarketDataService {
 
   setAuthToken(authToken) {
     this.authToken = authToken;
+    this.brokerConfig.jwtToken = authToken;  // ← keep both in sync
   }
 }
 
