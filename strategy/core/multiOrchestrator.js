@@ -1,9 +1,9 @@
 // ============================================================
-// MULTI-ORCHESTRATOR (FINAL FIX — Phase 2)
+// MULTI-ORCHESTRATOR (v3 — Phase 2)
 // CRITICAL FIXES:
 // 1. Pass full instrument profile to marketDataService.loadInstrumentMaster()
 // 2. Add setAuthToken() proxy for server.js compatibility
-// 3. Clean instrument removal with polling stop
+// 3. Polling callback args match engine method signatures
 // ============================================================
 
 const { InstrumentEngine } = require('./instrumentEngine');
@@ -19,7 +19,6 @@ class MultiOrchestrator {
     this.externalBroadcast = null;
   }
 
-  // CRITICAL FIX: server.js calls multiOrchestrator.setAuthToken(authToken)
   setAuthToken(authToken) {
     if (this.marketData && typeof this.marketData.setAuthToken === 'function') {
       this.marketData.setAuthToken(authToken);
@@ -35,7 +34,6 @@ class MultiOrchestrator {
 
     const engine = new InstrumentEngine(instrumentId, profile);
 
-    // CRITICAL: Each engine broadcasts independently — no suppression
     engine.onSignal = (id, signal) => {
       this.broadcast('SIGNAL', id, signal);
     };
@@ -54,7 +52,6 @@ class MultiOrchestrator {
 
     this.engines.set(instrumentId, engine);
 
-    // CRITICAL FIX: Pass full profile so marketDataService can filter correctly
     this.marketData.loadInstrumentMaster(instrumentId, null, profile)
       .then(() => {
         logger.info(`Added instrument: ${instrumentId} (${profile.name})`);
@@ -63,7 +60,10 @@ class MultiOrchestrator {
         logger.error(`Failed to load instrument master for ${instrumentId}: ${err.message}`);
       });
 
-    this.marketData.startPolling(instrumentId, null, (type, ...args) => {
+    // FIX: callback receives (type, ...args) where args match engine method signatures
+    // TICK: (type, ltp, timestamp) -> engine.onTick(ltp, timestamp)
+    // CHAIN: (type, chainData, premiums, timestamp) -> engine.onOptionChain(chainData, premiums, timestamp)
+    this.marketData.startPolling(instrumentId, (type, ...args) => {
       const eng = this.engines.get(instrumentId);
       if (!eng) return;
       if (type === 'TICK') eng.onTick(...args);
@@ -134,7 +134,6 @@ class MultiOrchestrator {
   }
 
   broadcast(type, instrumentId, data) {
-    // CRITICAL: Always broadcast. Never suppress.
     const engine = this.engines.get(instrumentId);
     const msg = {
       type,

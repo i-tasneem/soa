@@ -1,8 +1,7 @@
 // ============================================================
-// MARKET DATA SERVICE (FINAL FIX — Phase 2)
-// Strike normalization: Angel One master stores strikes in paise (×100)
-// Profile injection: accepts full instrument profile for correct filtering
-// Rate limiting: fixed burst protection
+// MARKET DATA SERVICE (v5 — Phase 2)
+// CRITICAL FIX: Added missing Angel One headers (X-ClientLocalIP etc.)
+// Extensive response logging to debug LTP fetch failures
 // ============================================================
 
 const axios = require('axios');
@@ -66,7 +65,6 @@ class MarketDataService {
     }
   }
 
-  // CRITICAL FIX: accept full profile as 3rd argument
   async loadInstrumentMaster(instrumentId, stockName = null, profile = null) {
     const entry = this.instruments.get(instrumentId);
     if (!entry) {
@@ -76,7 +74,6 @@ class MarketDataService {
         masterFile: null, masterLoadedAt: 0,
       });
     } else if (profile) {
-      // Merge incoming profile into existing entry
       entry.profile = { ...entry.profile, ...profile };
     }
     const inst = this.instruments.get(instrumentId);
@@ -89,14 +86,12 @@ class MarketDataService {
 
       logger.info(`[${instrumentId}] Filtering master: name=${nameUpper}, exch=${optExch}, type=${instType}`);
 
-      // Tier 1: exact name match
       let filtered = master.filter(s =>
         s.exch_seg === optExch &&
         s.instrumenttype === instType &&
         s.name && s.name.toUpperCase() === nameUpper
       );
 
-      // Tier 2: symbol prefix match (e.g., "NIFTY" matches "NIFTY30JUN2623450CE")
       if (filtered.length === 0) {
         filtered = master.filter(s =>
           s.exch_seg === optExch &&
@@ -108,7 +103,6 @@ class MarketDataService {
         }
       }
 
-      // Tier 3: name includes
       if (filtered.length === 0) {
         filtered = master.filter(s =>
           s.exch_seg === optExch &&
@@ -124,7 +118,6 @@ class MarketDataService {
       inst.masterFile = filtered;
       inst.masterLoadedAt = Date.now();
 
-      // Auto-extract lotSize and strikeStep for stocks
       if (stockName && filtered.length > 0) {
         const first = filtered[0];
         if (first.lotsize) inst.profile.lotSize = parseInt(first.lotsize) || 1;
@@ -149,7 +142,6 @@ class MarketDataService {
     const map = {};
     for (const item of data || []) {
       if (item.token) {
-        // CRITICAL: Angel One stores strikes in paise (×100). Normalize to rupees.
         const strikeRupees = parseFloat(item.strike) / 100 || 0;
         map[item.token] = {
           token: item.token,
@@ -188,40 +180,110 @@ class MarketDataService {
     const { indexExchange, indexToken } = inst.profile;
     if (!indexExchange || !indexToken) throw new Error(`Missing index config for ${instrumentId}`);
 
+    const token = authToken || this.authToken || '';
+    if (!token) {
+      logger.error(`[${instrumentId}] No auth token available`);
+      throw new Error('No auth token');
+    }
+
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
-      const resp = await axios.post(url, {
+      const payload = {
         mode: 'LTP',
         exchangeTokens: { [indexExchange]: [indexToken] },
-      }, {
+      };
+
+      logger.info(`[${instrumentId}] LTP request: ${JSON.stringify(payload)} | token=${token.substring(0,20)}...`);
+
+      const resp = await axios.post(url, payload, {
         headers: {
-          'Authorization': `Bearer ${authToken || this.authToken || ''}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           'X-UserType': 'USER',
           'X-SourceID': 'WEB',
+          'X-ClientLocalIP': '127.0.0.1',
+          'X-ClientPublicIP': '127.0.0.1',
+          'X-MACAddress': '00:00:00:00:00:00',
         },
         timeout: 10000,
       });
 
+      // EXTENSIVE LOGGING
+      const respStr = JSON.stringify(resp.data);
+      logger.info(`[${instrumentId}] LTP response: ${respStr.substring(0, 800)}`);
+
       const responseData = resp.data;
-      let fetched;
-      if (responseData && (responseData.status === true || responseData.success === true) && responseData.data) {
-        fetched = responseData.data.fetched || responseData.data;
-      } else if (responseData && responseData.fetched) {
-        fetched = responseData.fetched;
-      } else {
-        fetched = responseData;
+      let fetched = null;
+
+      // Try every possible response structure
+      if (responseData && typeof responseData === 'object') {
+        // Structure 1: { status, message, errorcode, data: { fetched: [...] } }
+        if (responseData.data && typeof responseData.data === 'object') {
+          if (Array.isArray(responseData.data.fetched)) {
+            fetched = responseData.data.fetched;
+            logger.info(`[${instrumentId}] Parsed structure 1: data.fetched, len=${fetched.length}`);
+          } else if (Array.isArray(responseData.data)) {
+            fetched = responseData.data;
+            logger.info(`[${instrumentId}] Parsed structure 2: data array, len=${fetched.length}`);
+          } else if (responseData.data.ltp !== undefined || responseData.data.lastTradedPrice !== undefined) {
+            fetched = [responseData.data];
+            logger.info(`[${instrumentId}] Parsed structure 3: data object with ltp`);
+          }
+        }
+        // Structure 4: { status, message, errorcode, fetched: [...] }
+        else if (Array.isArray(responseData.fetched)) {
+          fetched = responseData.fetched;
+          logger.info(`[${instrumentId}] Parsed structure 4: root fetched, len=${fetched.length}`);
+        }
+        // Structure 5: direct array
+        else if (Array.isArray(responseData)) {
+          fetched = responseData;
+          logger.info(`[${instrumentId}] Parsed structure 5: root array, len=${fetched.length}`);
+        }
+        // Structure 6: root object with ltp
+        else if (responseData.ltp !== undefined || responseData.lastTradedPrice !== undefined) {
+          fetched = [responseData];
+          logger.info(`[${instrumentId}] Parsed structure 6: root object with ltp`);
+        }
       }
 
-      if (Array.isArray(fetched) && fetched.length > 0) {
-        const ltp = parseFloat(fetched[0].ltp);
-        inst.lastLTP = ltp;
-        return { ltp, instrumentId };
+      if (!fetched) {
+        logger.error(`[${instrumentId}] Could not parse any known response structure`);
+        throw new Error(`Unparseable LTP response: ${respStr.substring(0, 200)}`);
       }
-      throw new Error('No LTP data');
+
+      if (fetched.length === 0) {
+        logger.warn(`[${instrumentId}] LTP fetched array is empty (market closed or invalid token?)`);
+        // Return cached if available
+        if (inst.lastLTP) {
+          logger.info(`[${instrumentId}] Returning cached LTP: ${inst.lastLTP}`);
+          return { ltp: inst.lastLTP, instrumentId, cached: true };
+        }
+        throw new Error('No LTP data - empty fetched array');
+      }
+
+      const first = fetched[0];
+      const ltpVal = first.ltp || first.lastTradedPrice || first.close || first.price;
+      const ltp = parseFloat(ltpVal);
+
+      if (!Number.isFinite(ltp)) {
+        logger.error(`[${instrumentId}] LTP value not parseable: ${ltpVal} from ${JSON.stringify(first).substring(0,200)}`);
+        if (inst.lastLTP) {
+          return { ltp: inst.lastLTP, instrumentId, cached: true };
+        }
+        throw new Error(`LTP not parseable: ${ltpVal}`);
+      }
+
+      inst.lastLTP = ltp;
+      logger.info(`[${instrumentId}] LTP success: ${ltp}`);
+      return { ltp, instrumentId };
     } catch (err) {
       logger.error(`[${instrumentId}] LTP fetch error: ${err.message}`);
+      if (inst && inst.lastLTP) {
+        logger.info(`[${instrumentId}] Returning cached LTP after error: ${inst.lastLTP}`);
+        return { ltp: inst.lastLTP, instrumentId, cached: true };
+      }
       throw err;
     }
   }
@@ -247,7 +309,7 @@ class MarketDataService {
     const strikeMap = {};
     for (const [token, info] of Object.entries(inst.tokenMap || {})) {
       if (info.exch_seg === optionExchange && info.expiry === expiry) {
-        const strike = info.strike; // Already normalized to rupees
+        const strike = info.strike;
         if (strike >= minStrike && strike <= maxStrike) {
           tokens.push(token);
           if (!strikeMap[strike]) strikeMap[strike] = { CE: null, PE: null };
@@ -259,8 +321,20 @@ class MarketDataService {
 
     if (tokens.length === 0) {
       logger.warn(`[${instrumentId}] No option tokens matched for expiry ${expiry}, spot ${spotPrice}, range ${minStrike}-${maxStrike}. TokenMap size: ${Object.keys(inst.tokenMap || {}).length}`);
+      if (inst.lastChain) {
+        const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
+        const atmRow = inst.lastChain.find(r => r.strikePrice === atmStrike);
+        const premiums = {
+          ce: atmRow?.CE ? { premium: atmRow.CE.ltp, strike: atmStrike, token: atmRow.CE.token } : null,
+          pe: atmRow?.PE ? { premium: atmRow.PE.ltp, strike: atmStrike, token: atmRow.PE.token } : null,
+          atmStrike,
+        };
+        return { chainData: inst.lastChain, premiums, instrumentId, cached: true };
+      }
       return { chainData: [], premiums: { ce: null, pe: null }, instrumentId };
     }
+
+    const token = authToken || this.authToken || '';
 
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
@@ -274,23 +348,32 @@ class MarketDataService {
           exchangeTokens: { [optionExchange]: batch },
         }, {
           headers: {
-            'Authorization': `Bearer ${authToken || this.authToken || ''}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'X-UserType': 'USER',
             'X-SourceID': 'WEB',
+            'X-ClientLocalIP': '127.0.0.1',
+            'X-ClientPublicIP': '127.0.0.1',
+            'X-MACAddress': '00:00:00:00:00:00',
           },
           timeout: 15000,
         });
 
         const responseData = resp.data;
-        let fetched;
-        if (responseData && (responseData.status === true || responseData.success === true) && responseData.data) {
-          fetched = responseData.data.fetched || responseData.data;
-        } else if (responseData && responseData.fetched) {
-          fetched = responseData.fetched;
-        } else {
-          fetched = responseData;
+        let fetched = null;
+        if (responseData && typeof responseData === 'object') {
+          if (responseData.data && typeof responseData.data === 'object') {
+            if (Array.isArray(responseData.data.fetched)) {
+              fetched = responseData.data.fetched;
+            } else if (Array.isArray(responseData.data)) {
+              fetched = responseData.data;
+            }
+          } else if (Array.isArray(responseData.fetched)) {
+            fetched = responseData.fetched;
+          } else if (Array.isArray(responseData)) {
+            fetched = responseData;
+          }
         }
         if (Array.isArray(fetched)) allResults.push(...fetched);
       }
@@ -334,11 +417,20 @@ class MarketDataService {
       return { chainData, premiums, instrumentId };
     } catch (err) {
       logger.error(`[${instrumentId}] Option chain fetch error: ${err.message}`);
+      if (inst.lastChain) {
+        const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
+        const atmRow = inst.lastChain.find(r => r.strikePrice === atmStrike);
+        const premiums = {
+          ce: atmRow?.CE ? { premium: atmRow.CE.ltp, strike: atmStrike, token: atmRow.CE.token } : null,
+          pe: atmRow?.PE ? { premium: atmRow.PE.ltp, strike: atmStrike, token: atmRow.PE.token } : null,
+          atmStrike,
+        };
+        return { chainData: inst.lastChain, premiums, instrumentId, cached: true };
+      }
       throw err;
     }
   }
 
-  // Safe signature: supports both (id, callback) and (id, authToken, callback)
   startPolling(instrumentId, authToken, callback) {
     if (typeof authToken === 'function') {
       callback = authToken;
@@ -349,8 +441,16 @@ class MarketDataService {
     const ltpInterval = setInterval(async () => {
       try {
         const result = await this.fetchIndexLTP(instrumentId, authToken);
-        callback('TICK', result.ltp, instrumentId);
-      } catch (err) { /* silently fail */ }
+        callback('TICK', result.ltp, Date.now());
+      } catch (err) {
+        const inst = this.instruments.get(instrumentId);
+        if (inst && inst.lastLTP) {
+          logger.info(`[${instrumentId}] Polling fallback: broadcasting cached LTP ${inst.lastLTP}`);
+          callback('TICK', inst.lastLTP, Date.now());
+        } else {
+          logger.warn(`[${instrumentId}] No cached LTP available for fallback`);
+        }
+      }
     }, 2000);
 
     const chainInterval = setInterval(async () => {
@@ -358,11 +458,25 @@ class MarketDataService {
         const inst = this.instruments.get(instrumentId);
         if (!inst || !inst.lastLTP) return;
         const result = await this.fetchOptionChain(instrumentId, inst.lastLTP, authToken);
-        callback('CHAIN', result.chainData, result.premiums, instrumentId);
-      } catch (err) { /* silently fail */ }
+        callback('CHAIN', result.chainData, result.premiums, Date.now());
+      } catch (err) {
+        const inst = this.instruments.get(instrumentId);
+        if (inst && inst.lastChain && inst.lastLTP) {
+          logger.info(`[${instrumentId}] Polling fallback: broadcasting cached chain`);
+          const atmStrike = Math.round(inst.lastLTP / inst.profile.strikeStep) * inst.profile.strikeStep;
+          const atmRow = inst.lastChain.find(r => r.strikePrice === atmStrike);
+          const premiums = {
+            ce: atmRow?.CE ? { premium: atmRow.CE.ltp, strike: atmStrike, token: atmRow.CE.token } : null,
+            pe: atmRow?.PE ? { premium: atmRow.PE.ltp, strike: atmStrike, token: atmRow.PE.token } : null,
+            atmStrike,
+          };
+          callback('CHAIN', inst.lastChain, premiums, Date.now());
+        }
+      }
     }, 5000);
 
     this._pollIntervals.set(instrumentId, { ltpInterval, chainInterval });
+    logger.info(`[${instrumentId}] Polling started (LTP 2s, Chain 5s)`);
   }
 
   stopPolling(instrumentId) {
@@ -377,6 +491,7 @@ class MarketDataService {
   setAuthToken(authToken) {
     this.authToken = authToken;
     this.brokerConfig.jwtToken = authToken;
+    logger.info(`MarketDataService auth token set: ${authToken ? authToken.substring(0,20) + '...' : 'null'}`);
   }
 }
 
