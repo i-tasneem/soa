@@ -1,5 +1,6 @@
 // ============================================================
 // DATA FRESHNESS — Centralized cache/freshness manager
+// FIX: IST day reset
 // ============================================================
 const EventEmitter = require('events');
 const config = require('../config');
@@ -11,9 +12,11 @@ class DataFreshness extends EventEmitter {
     this.feeds = new Map();
     this.lastWarningAt = new Map();
     this.warningCooldownMs = 15000;
+    this._lastResetDate = null;
   }
 
   update(feedName, timestamp = Date.now(), data = null) {
+    this._checkDayReset();
     const ts = Number(timestamp) || Date.now();
     const previous = this.feeds.get(feedName);
     const intervalMs = previous?.timestamp ? ts - previous.timestamp : null;
@@ -98,6 +101,21 @@ class DataFreshness extends EventEmitter {
     if (now - last < this.warningCooldownMs) return;
     this.lastWarningAt.set(feedName, now);
     console.warn(`⚠️ ${message}`, details);
+  }
+
+  _checkDayReset() {
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
+    if (this._lastResetDate !== today) {
+      this._lastResetDate = today;
+      this.feeds.clear();
+      this.lastWarningAt.clear();
+    }
+  }
+
+  reset() {
+    this.feeds.clear();
+    this.lastWarningAt.clear();
+    this._lastResetDate = null;
   }
 }
 

@@ -2,6 +2,7 @@
 // CANDLE BUILDER
 // Converts real-time ticks into OHLCV candles
 // Timeframes: 3m, 5m, 15m, 30m
+// FIX: IST day reset
 // ============================================================
 
 const EventEmitter = require('events');
@@ -15,10 +16,12 @@ class CandleBuilder extends EventEmitter {
     this.current = { 3: null, 5: null, 15: null, 30: null };
     // Timeframes in minutes
     this.timeframes = [3, 5, 15, 30];
+    this._lastResetDate = null;
   }
 
   // Feed a tick — call this on every LTP update
   tick(ltp, timestamp = Date.now()) {
+    this._checkDayReset();
     const ts = new Date(timestamp);
     for (const tf of this.timeframes) {
       this._processTick(tf, ltp, ts);
@@ -99,6 +102,16 @@ class CandleBuilder extends EventEmitter {
     const closed = this.candles[tf].slice(-count);
     const cur = this.current[tf];
     return cur ? [...closed, cur] : closed;
+  }
+
+  _checkDayReset() {
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
+    if (this._lastResetDate !== today) {
+      this._lastResetDate = today;
+      this.candles = { 3: [], 5: [], 15: [], 30: [] };
+      this.current = { 3: null, 5: null, 15: null, 30: null };
+      console.log('🕯️ Candle builder reset for new session');
+    }
   }
 
   // Reset at market open (9:15 AM)

@@ -3,6 +3,7 @@
 // Existing SR: Max OI + Nearest Wall
 // Buildup SR: Rolling ΔOI (build/weak)
 // Next Levels: Next wall above/below
+// FIX: IST day reset
 // ============================================================
 let cfg = null;
 try { cfg = require('../config'); } catch (_) { cfg = null; }
@@ -14,6 +15,7 @@ class OIEngine {
     this.maxHistory = 30;
     this._lastPrice = null;
     this._lastPriceTs = 0;
+    this._lastResetDate = null;
   }
 
   update(chainData) {
@@ -442,6 +444,15 @@ class OIEngine {
         totalPEoi
       }
     };
+  }
+
+  reset() {
+    this.history = [];
+    this.current = null;
+    this._lastPrice = null;
+    this._lastPriceTs = 0;
+    this._lastResetDate = null;
+    console.log('🔄 OI engine reset');
   }
 }
 

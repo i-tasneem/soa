@@ -2,6 +2,7 @@
 // STOCK SCANNER (FINAL FIX — Phase 2)
 // Liquidity check: spread < 8% AND premium > minPremium
 // Only activates stocks that pass the filter
+// FIX: Fetch actual underlying cash-market LTP instead of median strike
 // ============================================================
 
 const logger = require('../logger');
@@ -51,20 +52,61 @@ class StockScanner {
           continue;
         }
 
-        // Sort by strike and pick ATM
-        const strikes = [...new Set(tokens.map(t => t.strike).filter(Number.isFinite))].sort((a, b) => a - b);
-        if (strikes.length === 0) continue;
+        // FIX: Fetch actual underlying cash-market LTP
+        // Look for cash market token (not option token)
+        const cashToken = tokens.find(t => 
+          t.instrumenttype === 'EQ' || 
+          (t.symbol && !t.symbol.includes('CE') && !t.symbol.includes('PE') && t.strike === 0)
+        );
 
-        // We need the underlying spot price to find ATM. 
-        // For stocks, we don't have a direct index token. Approximate from option strikes.
-        const approxSpot = strikes[Math.floor(strikes.length / 2)];
-        const atmStrike = Math.round(approxSpot / 50) * 50; // Approximate
+        let spotPrice = null;
+
+        if (cashToken) {
+          try {
+            await this.marketData._rateLimit();
+            const quoteUrl = `${this.marketData.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
+            const axios = require('axios');
+            const resp = await axios.post(quoteUrl, {
+              mode: 'LTP',
+              exchangeTokens: { [cashToken.exch_seg]: [cashToken.token] },
+            }, {
+              headers: this.marketData._headers ? this.marketData._headers() : {
+                'Authorization': `Bearer ${this.marketData.authToken || ''}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 10000,
+            });
+
+            let fetched = null;
+            const responseData = resp.data;
+            if (responseData?.data?.fetched) fetched = responseData.data.fetched;
+            else if (responseData?.fetched) fetched = responseData.fetched;
+            else if (Array.isArray(responseData?.data)) fetched = responseData.data;
+            else if (Array.isArray(responseData)) fetched = responseData;
+
+            if (fetched && fetched.length > 0) {
+              spotPrice = parseFloat(fetched[0].ltp || fetched[0].lastTradedPrice);
+            }
+          } catch (err) {
+            logger.warn(`Stock scanner: Could not fetch cash LTP for ${stockName}: ${err.message}`);
+          }
+        }
+
+        // If we couldn't get cash LTP, skip the stock rather than approximate
+        if (!Number.isFinite(spotPrice)) {
+          logger.warn(`Stock scanner: No cash LTP available for ${stockName}, skipping`);
+          continue;
+        }
+
+        // Calculate ATM strike from actual spot price
+        const strikeStep = inst.profile.strikeStep || 5;
+        const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
 
         const atmCE = ceTokens.find(t => Math.abs(t.strike - atmStrike) < 1);
         const atmPE = peTokens.find(t => Math.abs(t.strike - atmStrike) < 1);
 
         if (!atmCE || !atmPE) {
-          logger.warn(`Stock scanner: No ATM options for ${stockName}, skipping`);
+          logger.warn(`Stock scanner: No ATM options for ${stockName} at strike ${atmStrike}, skipping`);
           continue;
         }
 
@@ -78,7 +120,7 @@ class StockScanner {
           mode: 'LTP',
           exchangeTokens: { [optionExchange]: [atmCE.token, atmPE.token] },
         }, {
-          headers: {
+          headers: this.marketData._headers ? this.marketData._headers() : {
             'Authorization': `Bearer ${this.marketData.authToken || ''}`,
             'Content-Type': 'application/json',
           },
@@ -117,13 +159,14 @@ class StockScanner {
             ceLTP,
             peLTP,
             spread,
+            spotPrice,
             timestamp: Date.now(),
           });
 
           // Activate the stock
           this.multiOrchestrator.addStock(stockName);
           this.activeStockEngines.set(stockName, { engineId: stockId, addedAt: Date.now() });
-          logger.info(`Stock scanner activated: ${stockName} (spread:${spread.toFixed(1)}%, CE:Rs${ceLTP}, PE:Rs${peLTP})`);
+          logger.info(`Stock scanner activated: ${stockName} (spot:${spotPrice}, spread:${spread.toFixed(1)}%, CE:Rs${ceLTP}, PE:Rs${peLTP})`);
         } else {
           logger.info(`Stock scanner skipped ${stockName}: spread=${spread.toFixed(1)}%, CE=Rs${ceLTP}, PE=Rs${peLTP} (needs spread<8% & premium>${minPremium})`);
         }

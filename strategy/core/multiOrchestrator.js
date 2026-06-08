@@ -4,6 +4,8 @@
 // 1. Pass full instrument profile to marketDataService.loadInstrumentMaster()
 // 2. Add setAuthToken() proxy for server.js compatibility
 // 3. Polling callback args match engine method signatures
+// 4. Broadcast TRADING_HALTED when daily loss limit hit
+// 5. IST day reset propagation
 // ============================================================
 
 const { InstrumentEngine } = require('./instrumentEngine');
@@ -42,6 +44,15 @@ class MultiOrchestrator {
     };
     engine.onTradeClose = (id, trade) => {
       this.broadcast('TRADE_CLOSED', id, trade);
+      // FIX: Check if trading halted and broadcast
+      const stats = engine.tradeManager.getStats();
+      if (stats.tradingHalted) {
+        this.broadcast('TRADING_HALTED', id, {
+          reason: 'Daily loss limit reached',
+          dailyPnL: stats.dailyPnL,
+          instrument: id,
+        });
+      }
     };
     engine.onUpdate = (id, update) => {
       this.broadcast('ANALYSIS', id, update);
@@ -61,8 +72,6 @@ class MultiOrchestrator {
       });
 
     // FIX: callback receives (type, ...args) where args match engine method signatures
-    // TICK: (type, ltp, timestamp) -> engine.onTick(ltp, timestamp)
-    // CHAIN: (type, chainData, premiums, timestamp) -> engine.onOptionChain(chainData, premiums, timestamp)
     this.marketData.startPolling(instrumentId, (type, ...args) => {
       const eng = this.engines.get(instrumentId);
       if (!eng) return;
@@ -161,3 +170,4 @@ class MultiOrchestrator {
 }
 
 module.exports = new MultiOrchestrator();
+module.exports.MultiOrchestrator = MultiOrchestrator;

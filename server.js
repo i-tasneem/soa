@@ -1,6 +1,7 @@
 // ============================================================
 // SOA TRADER SERVER — Multi-Instrument Architecture
 // Node.js 20, Express 4, WebSocket (ws)
+// FIX: CORS whitelist, IST day reset propagation
 // ============================================================
 
 const express = require('express');
@@ -35,7 +36,16 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(cors());
+// FIX: CORS whitelist instead of open cors
+const corsWhitelist = config.corsWhitelist || ['http://localhost:3000'];
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin || corsWhitelist.includes(origin)) return callback(null, true);
+    logger.warn(`CORS blocked origin: ${origin}`);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -80,15 +90,13 @@ async function authenticate() {
         'X-ClientLocalIP': 'CLIENT_LOCAL_IP',
         'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
         'X-MACAddress': 'MAC_ADDRESS',
-        'X-PrivateKey': config.angel.apiKey,  // ← REQUIRED: API Key header
+        'X-PrivateKey': config.angel.apiKey,
       },
       timeout: 30000,
     });
 
     logger.info(`Login response: ${JSON.stringify(resp.data)}`);
 
-    // Angel One returns { success: true/false, message: "...", data: {...} }
-    // OR { status: true/false, message: "...", data: {...} }
     const isSuccess = resp.data?.success === true || resp.data?.status === true;
 
     if (isSuccess && resp.data?.data) {
@@ -98,15 +106,14 @@ async function authenticate() {
       jwtToken = authToken;
       userProfile = resp.data.data;
 
-	if (multiOrchestrator.marketData) {
+      if (multiOrchestrator.marketData) {
         multiOrchestrator.marketData.brokerConfig.jwtToken = authToken;
         multiOrchestrator.marketData.brokerConfig.baseUrl = config.angel.baseUrl;
         multiOrchestrator.marketData.brokerConfig.apiKey = config.angel.apiKey;
         multiOrchestrator.marketData.brokerConfig.refreshToken = resp.data.data.refreshToken;
       }
-      
-      multiOrchestrator.setAuthToken(authToken, resp.data.data.refreshToken);
 
+      multiOrchestrator.setAuthToken(authToken, resp.data.data.refreshToken);
 
       logger.info('✅ Angel One authenticated successfully');
       broadcastToAllClients({ type: 'AUTH_STATUS', status: 'connected', message: 'Angel One Live' });
@@ -314,6 +321,8 @@ server.on('error', (err) => {
 
 function gracefulShutdown(signal) {
   logger.info(`${signal} received, shutting down gracefully`);
+  // FIX: flush DB queue before exit
+  try { db._flushQueue(); } catch (_) {}
   server.close(() => {
     logger.info('HTTP server closed');
     try {

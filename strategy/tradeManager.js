@@ -1,6 +1,9 @@
 // ============================================================
 // TRADE MANAGER
 // Manages open trades: entry, SL, target, trailing, exit
+// FIXES: Trailing stop logic tightened (never loosens below original SL).
+//        Daily loss circuit breaker added.
+//        IST day reset.
 // ============================================================
 
 class TradeManager {
@@ -11,14 +14,23 @@ class TradeManager {
     this.wins = 0;
     this.losses = 0;
     this._lastResetDate = null;
+    this.tradingHalted = false;
+    this.maxDailyLoss = 10000; // default, overridden by profile
   }
 
   openTrade(signal, premium, lots, profile) {
     this._checkDayReset();
 
+    // FIX: Daily loss circuit breaker
+    this.maxDailyLoss = profile?.maxDailyLoss || 10000;
+    if (this.tradingHalted) {
+      logger?.warn?.('Trade rejected: daily loss limit reached');
+      return null;
+    }
+
     if (this.activeTrade) return null;
 
-    const atr = signal.indicators?.atr || 0;
+    const atr = signal.indicators?.atr || signal.atr || 0;
     const price = signal.price || 0;
     const atrMult = profile?.atrMultiplier || { target: 0.8, sl: 0.6 };
 
@@ -47,6 +59,8 @@ class TradeManager {
       exitTime: null,
       exitReason: null,
       pnl: 0,
+      targetPts: Math.round(atr * atrMult.target * 100) / 100,
+      slPts: Math.round(atr * atrMult.sl * 100) / 100,
     };
 
     this.activeTrade = trade;
@@ -66,16 +80,24 @@ class TradeManager {
     const pnl = (premium - entryPrem) * lotSize;
     trade.unrealisedPnL = Math.round(pnl * 100) / 100;
 
-    // Trailing stop logic
-    if (premium >= trade.target * 0.5 && !trade.trailing) {
+    // FIX: Trailing stop logic — tightened, never loosened below original SL
+    const targetPts = trade.targetPts;
+    const slPts = trade.slPts;
+    const trailTrigger = entryPrem + (targetPts * 0.5); // 50% of target distance
+    const trailAmount = targetPts * 0.4;
+
+    if (premium >= trailTrigger && !trade.trailing) {
       trade.trailing = true;
-      trade.trailSL = Math.round((entryPrem + (premium - entryPrem) * 0.3) * 100) / 100;
+      // First trail: set to max(originalSL, current - trailAmount)
+      const firstTrail = Math.max(trade.sl, premium - trailAmount);
+      trade.trailSL = Math.round(firstTrail * 100) / 100;
     }
 
     if (trade.trailing) {
-      const newTrail = Math.round((entryPrem + (premium - entryPrem) * 0.3) * 100) / 100;
+      const newTrail = Math.max(trade.sl, premium - trailAmount);
+      // Never let trailSL move downward
       if (newTrail > trade.trailSL) {
-        trade.trailSL = newTrail;
+        trade.trailSL = Math.round(newTrail * 100) / 100;
       }
     }
 
@@ -113,6 +135,11 @@ class TradeManager {
     if (trade.status === 'WIN') this.wins++;
     else this.losses++;
 
+    // FIX: Check daily loss circuit breaker
+    if (this.dailyPnL <= -this.maxDailyLoss) {
+      this.tradingHalted = true;
+    }
+
     const result = { ...trade };
     this.activeTrade = null;
 
@@ -134,12 +161,12 @@ class TradeManager {
       losses: this.losses,
       totalTrades: this.trades.length,
       activeTrade: this.activeTrade ? { ...this.activeTrade } : null,
+      tradingHalted: this.tradingHalted,
     };
   }
 
   _checkDayReset() {
-    const now = new Date();
-    const today = now.toDateString();
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
     if (this._lastResetDate !== today) {
       this._lastResetDate = today;
       this.activeTrade = null;
@@ -147,6 +174,7 @@ class TradeManager {
       this.dailyPnL = 0;
       this.wins = 0;
       this.losses = 0;
+      this.tradingHalted = false;
       console.log('🔄 Trade manager reset for new day');
     }
   }
@@ -163,6 +191,7 @@ class TradeManager {
     this.wins = 0;
     this.losses = 0;
     this._lastResetDate = null;
+    this.tradingHalted = false;
     console.log('🔄 Trade manager reset');
   }
 }

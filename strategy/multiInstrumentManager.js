@@ -2,6 +2,7 @@
 // MULTI-INSTRUMENT MANAGER — Parallel Signal Generation
 // Phase 2: Run SENSEX + NIFTY + BANKNIFTY + FINNIFTY + BANKEX simultaneously
 // Each instrument gets fully isolated: candles, indicators, signals, trades, OI
+// FIX: IST day reset for all inline engines
 // ============================================================
 
 const { getIndicators, VWAPCalculator, calcATR } = require('./indicators');
@@ -24,9 +25,11 @@ class CandleBuilderInstance {
     this.candles = { 5: [], 15: [], 30: [] };
     this.current = { 5: null, 15: null, 30: null };
     this.lastSlot = { 5: null, 15: null, 30: null };
+    this._lastResetDate = null;
   }
 
   tick(price, ts) {
+    this._checkDayReset();
     const intervals = [5, 15, 30];
     for (const interval of intervals) {
       const slot = Math.floor(ts / (interval * 60 * 1000));
@@ -66,6 +69,14 @@ class CandleBuilderInstance {
     this.current = { 5: null, 15: null, 30: null };
     this.lastSlot = { 5: null, 15: null, 30: null };
   }
+
+  _checkDayReset() {
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
+    if (this._lastResetDate !== today) {
+      this._lastResetDate = today;
+      this.reset();
+    }
+  }
 }
 
 // ── INLINE OI ENGINE (simplified per-instance) ───────────────
@@ -73,6 +84,7 @@ class OIEngineInstance {
   constructor() {
     this.snapshot = null;
     this.chainHistory = [];
+    this._lastResetDate = null;
   }
 
   update(chainData) {
@@ -94,7 +106,6 @@ class OIEngineInstance {
     const totalOI = totalCEoi + totalPEoi;
     const pcr = totalPEoi > 0 ? totalCEoi / totalPEoi : 1;
 
-    // Find nearest walls
     const ceRows = rows.filter(r => r.CE?.oi > 0).sort((a, b) => (b.CE.oi) - (a.CE.oi)).slice(0, 5);
     const peRows = rows.filter(r => r.PE?.oi > 0).sort((a, b) => (b.PE.oi) - (a.PE.oi)).slice(0, 5);
 
@@ -133,7 +144,7 @@ class SignalEngineInstance {
   }
 
   _ensureDay() {
-    const today = new Date().toDateString();
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
     if (this.lastDate !== today) { this.lastDate = today; this.resetDay(); }
   }
 
@@ -205,15 +216,17 @@ class SignalEngineInstance {
   }
 
   _scoreEMATrend(indicators, type) {
-    const { ema } = indicators;
-    if (!ema || !Number.isFinite(ema.ema5) || !Number.isFinite(ema.ema9)) return 0;
+    const ema5 = indicators.ema5;
+    const ema9 = indicators.ema9;
+    const ema15 = indicators.ema15;
+    if (!Number.isFinite(ema5) || !Number.isFinite(ema9)) return 0;
     if (type === 'BUY_CE') {
-      if (ema.ema5 > ema.ema9 && ema.ema9 > ema.ema15) return 1.0;
-      if (ema.ema5 > ema.ema9) return 0.5;
+      if (ema5 > ema9 && ema9 > ema15) return 1.0;
+      if (ema5 > ema9) return 0.5;
       return 0.0;
     } else {
-      if (ema.ema5 < ema.ema9 && ema.ema9 < ema.ema15) return 1.0;
-      if (ema.ema5 < ema.ema9) return 0.5;
+      if (ema5 < ema9 && ema9 < ema15) return 1.0;
+      if (ema5 < ema9) return 0.5;
       return 0.0;
     }
   }
@@ -236,15 +249,16 @@ class SignalEngineInstance {
   }
 
   _scoreHTFAlignment(indicators, type) {
-    const { ema } = indicators;
-    if (!ema || !Number.isFinite(ema.ema9_15m) || !Number.isFinite(ema.ema15_15m)) return 0;
-    const diff = Math.abs(ema.ema9_15m - ema.ema15_15m);
-    const threshold = ema.ema15_15m * 0.001;
+    const ema9_15m = indicators.ema9_15m;
+    const ema15_15m = indicators.ema15_15m;
+    if (!Number.isFinite(ema9_15m) || !Number.isFinite(ema15_15m)) return 0;
+    const diff = Math.abs(ema9_15m - ema15_15m);
+    const threshold = ema15_15m * 0.001;
     if (type === 'BUY_CE') {
-      if (ema.ema9_15m > ema.ema15_15m) return diff < threshold ? 0.5 : 1.0;
+      if (ema9_15m > ema15_15m) return diff < threshold ? 0.5 : 1.0;
       return 0.0;
     } else {
-      if (ema.ema9_15m < ema.ema15_15m) return diff < threshold ? 0.5 : 1.0;
+      if (ema9_15m < ema15_15m) return diff < threshold ? 0.5 : 1.0;
       return 0.0;
     }
   }
@@ -386,9 +400,9 @@ class SignalEngineInstance {
       timeStr: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }),
       price: indicators.price,
       vwap: indicators.vwap?.vwap,
-      ema5: indicators.ema?.ema5,
-      ema9: indicators.ema?.ema9,
-      ema15: indicators.ema?.ema15,
+      ema5: indicators.ema5,
+      ema9: indicators.ema9,
+      ema15: indicators.ema15,
       signalNum: this.todaySignals.length + 1,
       entryPremium: entryPremium,
       strike: contract?.strike ?? null,
@@ -437,9 +451,13 @@ class TradeManagerInstance {
     this.maxConfirmed = dna.maxTradesDay || 3;
     this.closedTrades = [];
     this.dailyPnL = 0;
+    this.tradingHalted = false;
+    this.maxDailyLoss = 10000;
+    this._lastResetDate = null;
   }
 
   canOpenNewTrade() {
+    if (this.tradingHalted) return { allowed: false, reason: 'Daily loss limit reached' };
     if (this.activeTrade) return { allowed: false, reason: 'Active trade exists' };
     if (this.confirmedToday >= this.maxConfirmed) return { allowed: false, reason: 'Daily limit reached' };
     return { allowed: true };
@@ -510,17 +528,21 @@ class TradeManagerInstance {
     const closed = { ...trade, exitPremium, exitTime: new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }), reason, profit: parseFloat(profit.toFixed(2)), pnl, status: pnl >= 0 ? 'WIN' : 'LOSS' };
     this.closedTrades.push(closed);
     this.dailyPnL += pnl;
+    if (this.dailyPnL <= -this.maxDailyLoss) this.tradingHalted = true;
     this.activeTrade = null;
     return closed;
   }
 
-  resetDay() { this.activeTrade = null; this.closedTrades = []; this.dailyPnL = 0; this.confirmedToday = 0; }
-  getState() { return { activeTrade: this.activeTrade, closedTrades: this.closedTrades, dailyPnL: parseFloat(this.dailyPnL.toFixed(2)), totalTrades: this.closedTrades.length, wins: this.closedTrades.filter(t => t.status === 'WIN').length, losses: this.closedTrades.filter(t => t.status === 'LOSS').length }; }
+  resetDay() { this.activeTrade = null; this.closedTrades = []; this.dailyPnL = 0; this.confirmedToday = 0; this.tradingHalted = false; }
+
+  getState() {
+    return { activeTrade: this.activeTrade, closedTrades: this.closedTrades, dailyPnL: parseFloat(this.dailyPnL.toFixed(2)), totalTrades: this.closedTrades.length, wins: this.closedTrades.filter(t => t.status === 'WIN').length, losses: this.closedTrades.filter(t => t.status === 'LOSS').length, tradingHalted: this.tradingHalted };
+  }
 }
 
 // ── INLINE MARKET STATE ENGINE (per-instance) ────────────────
 class MarketStateEngineInstance {
-  constructor() { this.state = 'UNKNOWN'; this.history = []; this.priceHistory = []; }
+  constructor() { this.state = 'UNKNOWN'; this.history = []; this.priceHistory = []; this._lastResetDate = null; }
   classify(indicators, oiAnalysis, regime = null) {
     if (!indicators) return { state: 'UNKNOWN', reasons: [], bullScore: 0, bearScore: 0 };
     const { bias, bb, momentum, candle, breakout, price } = indicators;
@@ -728,14 +750,14 @@ class InstrumentOrchestrator {
 
   _serializeIndicators(ind) {
     return {
-      price: ind.price, ema5: ind.ema?.ema5, ema9: ind.ema?.ema9, ema15: ind.ema?.ema15,
-      vwap: ind.vwap?.vwap, bb: ind.bb?.['5m'], bias: ind.bias, candle: ind.candle?.last,
+      price: ind.price, ema5: ind.ema5, ema9: ind.ema9, ema15: ind.ema15,
+      vwap: ind.vwap?.vwap, bb: ind.bb, bias: ind.bias, candle: ind.candle?.last,
       atr14: ind.atr14, volume: ind.volume,
     };
   }
 
   _checkDayReset() {
-    const today = new Date().toDateString();
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
     if (this._lastResetDate !== today) {
       this._lastResetDate = today;
       this.candleBuilder.reset();

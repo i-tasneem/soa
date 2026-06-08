@@ -3,6 +3,8 @@
 // Per-instrument signal engine — fully independent, no shared state
 // FIXES: VWAP uses .update(candle); RegimeDetector instantiable; 
 //        robust error handling in all callbacks
+//        ATR alias for tradeManager; option LTP from chain data
+//        IST day reset
 // ============================================================
 
 const { CandleBuilder } = require('../candleBuilder');
@@ -103,26 +105,29 @@ class InstrumentEngine {
 
     const candles5m = this.candleBuilder.getCandles(5, 50);
     const candles15m = this.candleBuilder.getCandles(15, 50);
-    const candles3m = this.candleBuilder.getCandles(3, 50);
+    const candles30m = this.candleBuilder.getCandles(30, 50);
 
     if (candles5m.length < 3) return;
 
     let indicators;
     try {
-      indicators = calculateIndicators(candles5m, candles15m, candles3m, ltp);
+      // FIX: pass actual VWAP instance and 30m candles (not 3m)
+      indicators = calculateIndicators(candles5m, candles15m, candles30m, this.vwap);
     } catch (err) {
       logger.error(`[${this.id}] Indicator calculation error: ${err.message}`);
       return;
     }
 
-    // FIX 1: Abort if not enough candles to generate indicators yet
-    if (!indicators) return; 
+    if (!indicators) return;
+
+    // FIX: alias atr14 to atr for tradeManager backward compatibility
+    if (indicators.atr14) {
+      indicators.atr = indicators.atr14;
+      this.lastATR = indicators.atr14;
+    }
 
     this.lastIndicators = indicators;
     this.lastPrice = ltp;
-    
-    // FIX 2: Change .atr to .atr14 to match indicators.js output
-    if (indicators.atr14) this.lastATR = indicators.atr14;
 
     let state;
     try {
@@ -135,7 +140,6 @@ class InstrumentEngine {
 
     let regime;
     try {
-      // FIX: RegimeDetector.detect() now expects (candles, indicators) and returns { trend, strength }
       regime = this.regimeDetector.detect(candles5m, indicators);
     } catch (err) {
       regime = { trend: 'NEUTRAL', strength: 0 };
@@ -170,6 +174,16 @@ class InstrumentEngine {
     if (premiums && premiums.ce && premiums.pe) {
       this._exec = premiums;
       this._lastOptPremiumTs = Date.now();
+      // FIX: Update active trade option LTP from chain data so trades can track P&L
+      if (this.tradeManager.activeTrade) {
+        const p = this.tradeManager.activeTrade.type === 'BUY_CE'
+          ? premiums.ce?.premium
+          : premiums.pe?.premium;
+        if (typeof p === 'number') {
+          this._lastOptPremium = p;
+          this._lastOptPremiumTs = Date.now();
+        }
+      }
     }
   }
 
@@ -296,8 +310,8 @@ class InstrumentEngine {
   }
 
   _checkDayReset() {
-    const now = new Date();
-    const today = now.toDateString();
+    // FIX: Use IST timezone for day boundary
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
     if (this._lastResetDate !== today) {
       this._lastResetDate = today;
       try { this.candleBuilder.reset(); } catch (_) {}

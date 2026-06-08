@@ -1,6 +1,7 @@
 // ============================================================
 // CONFIGURATION
 // Environment-driven configuration for SOA Trader
+// FIX: Added maxDailyLoss, CORS whitelist
 // ============================================================
 
 require('dotenv').config();
@@ -25,6 +26,7 @@ const config = {
     maxSignalsDay: parseInt(process.env.MAX_SIGNALS_DAY) || 5,
     maxTradesDay: parseInt(process.env.MAX_TRADES_DAY) || 3,
     cooldownMs: parseInt(process.env.COOLDOWN_MS) || 300000,
+    maxDailyLoss: parseInt(process.env.MAX_DAILY_LOSS) || 10000,
   },
   market: {
     openTime: '09:15',
@@ -41,6 +43,8 @@ const config = {
     enabled: process.env.CALIBRATION_ENABLED === 'true',
     minSamples: parseInt(process.env.CALIBRATION_MIN_SAMPLES) || 50,
   },
+  // FIX: CORS whitelist
+  corsWhitelist: (process.env.CORS_WHITELIST || 'http://localhost:3000').split(',').map(s => s.trim()).filter(Boolean),
   // NEW: Multi-instrument configuration
   activeInstruments: (process.env.INSTRUMENTS || 'SENSEX,NIFTY,BANKNIFTY,FINNIFTY,BANKEX').split(',').map(s => s.trim().toUpperCase()),
   stockWatchlist: (process.env.STOCK_WATCHLIST || 'RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK').split(',').map(s => s.trim().toUpperCase()),

@@ -1,6 +1,8 @@
 // ============================================================
 // SIGNAL ENGINE
 // Generates BUY_CE / BUY_PE signals based on multi-factor analysis
+// FIX: Updated indicator property access for nested vwap object,
+//      added rsi support, IST day reset
 // ============================================================
 
 const { STATES } = require('./marketStateEngine');
@@ -47,7 +49,16 @@ class SignalEngine {
     let factors = [];
     let type = null;
 
-    const { ema5, ema9, ema21, vwap, rsi, bb, atr } = indicators;
+    // FIX: Access nested indicator properties correctly
+    const ema5 = indicators.ema5;
+    const ema9 = indicators.ema9;
+    const ema21 = indicators.ema21;
+    const vwapObj = indicators.vwap;  // object {vwap, upper1, lower1, upper2, lower2}
+    const vwap = vwapObj?.vwap || null;
+    const rsi = indicators.rsi;
+    const bb = indicators.bb;  // 5m object {upper, middle, lower, bandwidth, squeeze, expanding}
+    const atr = indicators.atr || indicators.atr14;
+
     const { state, confidence: stateConfidence } = marketState;
     const { ceBuyConfirmed, peBuyConfirmed, oiBullish, oiBearish, imbalanceBias } = oiAnalysis;
 
@@ -169,7 +180,7 @@ class SignalEngine {
         ema21,
         vwap,
         rsi,
-        bb: bb ? { bw: bb.bw, squeeze: bb.squeeze } : null,
+        bb: bb ? { bw: bb.bandwidth, squeeze: bb.squeeze } : null,
         atr,
       },
       marketState: {
@@ -191,8 +202,7 @@ class SignalEngine {
   }
 
   _checkDayReset() {
-    const now = new Date();
-    const today = now.toDateString();
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
     if (this._lastResetDate !== today) {
       this._lastResetDate = today;
       this.signalCount = 0;

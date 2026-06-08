@@ -1,6 +1,7 @@
 // ============================================================
 // ABORT ENGINE
 // Detects conditions that should abort a trade setup
+// FIX: Updated indicator property access for nested vwap/volume objects
 // ============================================================
 
 class AbortEngine {
@@ -14,7 +15,17 @@ class AbortEngine {
     const { price, indicators, marketState, oiAnalysis, regime, signal, timestamp } = ctx;
     if (!indicators || !marketState || !oiAnalysis) return null;
 
-    const { ema5, ema9, ema21, vwap, rsi, bb, atr } = indicators;
+    // FIX: Access nested indicator properties correctly
+    const ema5 = indicators.ema5;
+    const ema9 = indicators.ema9;
+    const ema21 = indicators.ema21;
+    const vwapObj = indicators.vwap;
+    const vwap = vwapObj?.vwap || null;
+    const rsi = indicators.rsi;
+    const bb = indicators.bb;
+    const atr = indicators.atr || indicators.atr14;
+    const volume = indicators.volume;
+
     const { state, confidence } = marketState;
     const { isPinned, nearPin, pcrTrend, oiVelocity } = oiAnalysis;
 

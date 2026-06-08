@@ -1,6 +1,8 @@
 // ============================================================
 // MARKET STATE ENGINE
 // Detects market regime: TRENDING, SIDEWAYS, VOLATILE, REVERSAL, BREAKOUT
+// FIX: Updated indicator property access for nested vwap/volume objects,
+//      IST day reset
 // ============================================================
 
 const STATES = {
@@ -28,8 +30,17 @@ class MarketStateEngine {
       return { state: this.state, confidence: this.confidence };
     }
 
-    // Destructure atr14 instead, and alias it to atr for the rest of your logic
-	const { ema5, ema9, ema21, vwap, bb, rsi, atr14: atr, volume } = indicators;
+    // FIX: Destructure from nested indicator structure
+    const ema5 = indicators.ema5;
+    const ema9 = indicators.ema9;
+    const ema21 = indicators.ema21;
+    const vwapObj = indicators.vwap;
+    const vwap = vwapObj?.vwap || null;
+    const bb = indicators.bb;  // 5m object
+    const rsi = indicators.rsi;
+    const atr = indicators.atr || indicators.atr14;
+    const volume = indicators.volume;  // {current, avg20}
+
     const last3 = candles.slice(-3);
     const lastCandle = last3[last3.length - 1];
     const prevCandle = last3[last3.length - 2];
@@ -50,7 +61,7 @@ class MarketStateEngine {
 
     // Bollinger Band squeeze
     const bbSqueeze = bb?.squeeze || false;
-    const bbWidth = bb?.bw || 0;
+    const bbWidth = bb?.bandwidth || 0;
 
     // RSI
     const rsiVal = rsi || 50;
@@ -61,7 +72,7 @@ class MarketStateEngine {
     const atrHigh = atr && atr > (ema21 * 0.002); // ATR > 0.2% of price
 
     // Volume
-    const volSpike = volume && volume.avg > 0 && volume.last > volume.avg * 1.5;
+    const volSpike = volume && volume.avg20 > 0 && volume.current > volume.avg20 * 1.5;
 
     // Candle structure
     const bullishCandle = lastCandle?.close > lastCandle?.open;
@@ -155,7 +166,6 @@ class MarketStateEngine {
 
     // Smooth state transitions
     if (this.state !== state && this.confidence > 70) {
-      // Require 2 consecutive same states for high confidence transitions
       const recent = this.history.slice(-2);
       const allSame = recent.every(h => h.state === state);
       if (!allSame) {

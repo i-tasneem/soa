@@ -1,6 +1,7 @@
 // ============================================================
 // ORCHESTRATOR (LEGACY — SINGLE-INSTRUMENT MODE)
 // Still works for backward compatibility
+// FIX: Updated indicator property access, IST day reset
 // ============================================================
 
 const candleBuilder = require('./candleBuilder');
@@ -57,11 +58,11 @@ class Orchestrator {
 
     const candles5m = candleBuilder.getCandles(5, 50);
     const candles15m = candleBuilder.getCandles(15, 50);
-    const candles3m = candleBuilder.getCandles(3, 50);
+    const candles30m = candleBuilder.getCandles(30, 50);
 
     if (candles5m.length < 3) return;
 
-    const indicators = calculateIndicators(candles5m, candles15m, candles3m, ltp);
+    const indicators = calculateIndicators(candles5m, candles15m, candles30m, null);
     this.lastIndicators = indicators;
     this.lastPrice = ltp;
 
@@ -172,8 +173,7 @@ class Orchestrator {
   }
 
   _checkDayReset() {
-    const now = new Date();
-    const today = now.toDateString();
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
     if (this._lastResetDate !== today) {
       this._lastResetDate = today;
       candleBuilder.reset();

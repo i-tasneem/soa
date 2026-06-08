@@ -1,7 +1,9 @@
 // ============================================================
 // INDICATORS
-// EMA, Bollinger Bands, VWAP, Candle Analysis
-// Grade A: Added ATR(14) + ATR_MA20 + Volume analysis
+// EMA, Bollinger Bands, VWAP, Candle Analysis, RSI, ATR
+// Grade A: Added ATR(14) + ATR_MA20 + Volume analysis + RSI(14)
+// CRITICAL FIX: calculateIndicators now accepts vwapInstance and returns
+// both nested and flat properties for backward compatibility.
 // ============================================================
 
 // ── EMA ──────────────────────────────────────────────────────
@@ -28,6 +30,22 @@ function calcEMAArray(candles, period) {
     result.push(parseFloat(ema.toFixed(2)));
   }
   return result;
+}
+
+// ── RSI ──────────────────────────────────────────────────────
+function calcRSI(candles, period = 14) {
+  if (!Array.isArray(candles) || candles.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const change = candles[candles.length - i].close - candles[candles.length - i - 1].close;
+    if (change >= 0) gains += change;
+    else losses += Math.abs(change);
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return parseFloat((100 - (100 / (1 + rs))).toFixed(2));
 }
 
 // ── ATR ──────────────────────────────────────────────────────
@@ -129,7 +147,7 @@ function analyzeCandle(candle) {
 }
 
 // ── FULL INDICATOR SNAPSHOT ───────────────────────────────────
-function getIndicators(candles5m, candles15m, candles30m, vwap) {
+function getIndicators(candles5m, candles15m, candles30m, vwapInstance) {
   if (!candles5m || candles5m.length < 5) return null;
 
   const c5 = candles5m;
@@ -140,6 +158,7 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
   const ema5 = calcEMA(c5, 5);
   const ema9 = calcEMA(c5, 9);
   const ema15 = calcEMA(c5, 15);
+  const ema21 = calcEMA(c5, 21);  // NEW: required by downstream consumers
   const ema50 = calcEMA(c5, 50);
   const ema200 = calcEMA(c5, 200);
 
@@ -148,12 +167,12 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
   const ema15_15m = calcEMA(c15, 15);
   const ema9_30m = calcEMA(c30, 9);
 
-  // Bollinger on 5m
+  // Bollinger on 5m and 15m
   const bb5 = calcBollingerBands(c5, 9, 2);
   const bb15 = calcBollingerBands(c15, 15, 2);
 
   // VWAP
-  const vwapData = vwap?.get() || null;
+  const vwapData = vwapInstance?.get ? vwapInstance.get() : (vwapInstance || null);
 
   // Current price
   const price = c5[c5.length - 1]?.close;
@@ -202,27 +221,36 @@ function getIndicators(candles5m, candles15m, candles30m, vwap) {
   const avgVolume = volumes.length ? volumes.reduce((a, b) => a + b, 0) / volumes.length : 0;
   const currentVolume = c5[c5.length - 1]?.volume || c5[c5.length - 1]?.ticks || 0;
 
+  // RSI
+  const rsi = calcRSI(c5, 14);
+
   return {
     price,
-    ema: { ema5, ema9, ema15, ema50, ema200, ema9_15m, ema15_15m, ema9_30m },
-    bb: { '5m': bb5, '15m': bb15 },
-    vwap: vwapData,
+    ema5, ema9, ema15, ema21, ema50, ema200,
+    ema9_15m, ema15_15m, ema9_30m,
+    bb: bb5,           // 5m BB object for backward compatibility
+    bb15,             // 15m BB object
+    bbAll: { '5m': bb5, '15m': bb15 },
+    vwap: vwapData,    // OBJECT: {vwap, upper1, lower1, upper2, lower2}
+    vwapValue: vwapData?.vwap || null,  // scalar alias
+    rsi,
     bias: { bullishEMA, bearishEMA, aboveVWAP, belowVWAP, htfBullish, htfBearish },
     momentum: { bullMomentum, bearMomentum },
     candle: { last: lastCandle, prev1: prev1Candle, prev2: prev2Candle },
     breakout: { priceAboveBB, priceBelowBB },
     atr14,
+    atr: atr14,        // flat alias for backward compatibility
     atr14_MA20,
     volume: { current: currentVolume, avg20: avgVolume },
   };
 }
 
 // ── BACKWARD COMPATIBILITY WRAPPER ───────────────────────────
-// instrumentEngine.js and orchestrator.js call calculateIndicators(candles5m, candles15m, candles3m, ltp)
-function calculateIndicators(candles5m, candles15m, candles3m, ltp) {
-  // getIndicators signature: (candles5m, candles15m, candles30m, vwap)
-  // We pass candles3m as the 30m slot and null for vwap (ltp is not a vwap object)
-  return getIndicators(candles5m, candles15m, candles3m, null);
+// instrumentEngine.js and orchestrator.js call:
+//   calculateIndicators(candles5m, candles15m, candles3m, ltp)
+// FIX: signature changed to (candles5m, candles15m, candles30m, vwapInstance)
+function calculateIndicators(candles5m, candles15m, candles30m, vwapInstance) {
+  return getIndicators(candles5m, candles15m, candles30m, vwapInstance);
 }
 
 module.exports = {
@@ -230,8 +258,9 @@ module.exports = {
   calcEMAArray,
   calcBollingerBands,
   calcATR,
+  calcRSI,
   VWAPCalculator,
   analyzeCandle,
   getIndicators,
-  calculateIndicators,  // ← ADDED: backward compatibility for orchestrator.js & instrumentEngine.js
+  calculateIndicators,
 };

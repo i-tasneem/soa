@@ -1,6 +1,7 @@
 // ============================================================
 // EARLY ENTRY DETECTOR
 // Detects pre-signal conditions for early warning
+// FIX: Updated indicator property access for nested vwap object
 // ============================================================
 
 class EarlyEntryDetector {
@@ -14,8 +15,14 @@ class EarlyEntryDetector {
     const { indicators, marketState, oiAnalysis, price, timestamp } = ctx;
     if (!indicators || !marketState || !oiAnalysis) return null;
 
-    const { ema5, ema9, ema21, vwap, rsi, bb } = indicators;
-    const { state } = marketState;
+    // FIX: Access nested indicator properties correctly
+    const ema5 = indicators.ema5;
+    const ema9 = indicators.ema9;
+    const ema21 = indicators.ema21;
+    const vwapObj = indicators.vwap;
+    const vwap = vwapObj?.vwap || null;
+    const rsi = indicators.rsi;
+    const bb = indicators.bb;
     const { ceBuyConfirmed, peBuyConfirmed } = oiAnalysis;
 
     let score = 0;
@@ -32,10 +39,12 @@ class EarlyEntryDetector {
     }
 
     // Price near VWAP
-    const vwapDist = Math.abs(price - vwap) / vwap;
-    if (vwapDist < 0.001) {
-      score += 3;
-      factors.push({ name: 'Price near VWAP', score: 3 });
+    if (vwap) {
+      const vwapDist = Math.abs(price - vwap) / vwap;
+      if (vwapDist < 0.001) {
+        score += 3;
+        factors.push({ name: 'Price near VWAP', score: 3 });
+      }
     }
 
     // RSI approaching zones

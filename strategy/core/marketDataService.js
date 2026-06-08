@@ -2,15 +2,45 @@
 // MARKET DATA SERVICE (v5 — Phase 2)
 // CRITICAL FIX: Added missing Angel One headers (X-ClientLocalIP etc.)
 // Extensive response logging to debug LTP fetch failures
+// FIX: Real local IP/MAC detection; token refresh mutex
 // ============================================================
 
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { createExpiryCalculator } = require('../utils/expiryCalculator');
 const logger = require('../../logger');
 
 const INSTRUMENT_MASTER_URL = 'https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json';
+
+// ── Real network identity (not fake 127.0.0.1) ─────────────
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (!iface.internal && iface.family === 'IPv4') {
+        return iface.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+}
+
+function getMacAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (!iface.internal && iface.family === 'IPv4') {
+        return iface.mac || '00:00:00:00:00:00';
+      }
+    }
+  }
+  return '00:00:00:00:00:00';
+}
+
+const LOCAL_IP = getLocalIP();
+const MAC_ADDR = getMacAddress();
 
 class MarketDataService {
   constructor(brokerConfig) {
@@ -22,11 +52,26 @@ class MarketDataService {
     this.authToken = null;
     this._masterCache = null;
     this._masterCacheTime = 0;
-    
-    // NEW: Token refresh mechanism
+
+    // Token refresh mechanism
     this.refreshToken = null;
     this._refreshInterval = null;
     this._lastTokenRefreshTime = 0;
+    this._refreshPromise = null;  // FIX: mutex for token refresh
+  }
+
+  _headers(token) {
+    return {
+      'Authorization': `Bearer ${token || this.authToken || ''}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-UserType': 'USER',
+      'X-SourceID': 'WEB',
+      'X-ClientLocalIP': LOCAL_IP,
+      'X-ClientPublicIP': LOCAL_IP,
+      'X-MACAddress': MAC_ADDR,
+      'X-PrivateKey': this.brokerConfig.apiKey || '',
+    };
   }
 
   async _fetchMaster() {
@@ -200,32 +245,18 @@ class MarketDataService {
 
       logger.info(`[${instrumentId}] LTP request: ${JSON.stringify(payload)} | token=${token.substring(0,20)}...`);
 
-       const resp = await axios.post(url, payload, {
-		headers: {
-			'Authorization': `Bearer ${token}`,
-			'Content-Type': 'application/json',
-			'Accept': 'application/json',
-			'X-UserType': 'USER',
-			'X-SourceID': 'WEB',
-			'X-ClientLocalIP': '127.0.0.1',
-			'X-ClientPublicIP': '127.0.0.1',
-			'X-MACAddress': '00:00:00:00:00:00',
-			'X-PrivateKey': this.brokerConfig.apiKey || '',
-		},
-		timeout: 10000,
-		});
+      const resp = await axios.post(url, payload, {
+        headers: this._headers(token),
+        timeout: 10000,
+      });
 
-
-      // EXTENSIVE LOGGING
       const respStr = JSON.stringify(resp.data);
       logger.info(`[${instrumentId}] LTP response: ${respStr.substring(0, 800)}`);
 
       const responseData = resp.data;
       let fetched = null;
 
-      // Try every possible response structure
       if (responseData && typeof responseData === 'object') {
-        // Structure 1: { status, message, errorcode, data: { fetched: [...] } }
         if (responseData.data && typeof responseData.data === 'object') {
           if (Array.isArray(responseData.data.fetched)) {
             fetched = responseData.data.fetched;
@@ -237,19 +268,13 @@ class MarketDataService {
             fetched = [responseData.data];
             logger.info(`[${instrumentId}] Parsed structure 3: data object with ltp`);
           }
-        }
-        // Structure 4: { status, message, errorcode, fetched: [...] }
-        else if (Array.isArray(responseData.fetched)) {
+        } else if (Array.isArray(responseData.fetched)) {
           fetched = responseData.fetched;
           logger.info(`[${instrumentId}] Parsed structure 4: root fetched, len=${fetched.length}`);
-        }
-        // Structure 5: direct array
-        else if (Array.isArray(responseData)) {
+        } else if (Array.isArray(responseData)) {
           fetched = responseData;
           logger.info(`[${instrumentId}] Parsed structure 5: root array, len=${fetched.length}`);
-        }
-        // Structure 6: root object with ltp
-        else if (responseData.ltp !== undefined || responseData.lastTradedPrice !== undefined) {
+        } else if (responseData.ltp !== undefined || responseData.lastTradedPrice !== undefined) {
           fetched = [responseData];
           logger.info(`[${instrumentId}] Parsed structure 6: root object with ltp`);
         }
@@ -262,7 +287,6 @@ class MarketDataService {
 
       if (fetched.length === 0) {
         logger.warn(`[${instrumentId}] LTP fetched array is empty (market closed or invalid token?)`);
-        // Return cached if available
         if (inst.lastLTP) {
           logger.info(`[${instrumentId}] Returning cached LTP: ${inst.lastLTP}`);
           return { ltp: inst.lastLTP, instrumentId, cached: true };
@@ -287,43 +311,25 @@ class MarketDataService {
       return { ltp, instrumentId };
     } catch (err) {
       logger.error(`[${instrumentId}] LTP fetch error: ${err.message}`);
-      
-      // FIX: Handle 403 errors with token refresh
+
       if (err.response?.status === 403) {
         logger.warn(`[${instrumentId}] Got 403 Forbidden - attempting token refresh...`);
         const refreshed = await this._refreshAuthToken();
         if (refreshed) {
           logger.info(`[${instrumentId}] Token refreshed, retrying LTP fetch...`);
-          // Retry once after refresh
           try {
-            const token = this.authToken || '';
-            const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
-            const payload = {
-              mode: 'LTP',
-              exchangeTokens: { [indexExchange]: [indexToken] },
-            };
             const retryResp = await axios.post(url, payload, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-UserType': 'USER',
-                'X-SourceID': 'WEB',
-                'X-ClientLocalIP': '127.0.0.1',
-                'X-ClientPublicIP': '127.0.0.1',
-                'X-MACAddress': '00:00:00:00:00:00',
-                'X-PrivateKey': this.brokerConfig.apiKey || '',
-              },
+              headers: this._headers(),
               timeout: 10000,
             });
-            
+
             const responseData = retryResp.data;
             let fetched = null;
             if (responseData?.data?.fetched) fetched = responseData.data.fetched;
             else if (responseData?.fetched) fetched = responseData.fetched;
             else if (Array.isArray(responseData?.data)) fetched = responseData.data;
             else if (Array.isArray(responseData)) fetched = responseData;
-            
+
             if (fetched && fetched.length > 0) {
               const first = fetched[0];
               const ltpVal = first.ltp || first.lastTradedPrice || first.close || first.price;
@@ -339,7 +345,7 @@ class MarketDataService {
           }
         }
       }
-      
+
       if (inst && inst.lastLTP) {
         logger.info(`[${instrumentId}] Returning cached LTP after error: ${inst.lastLTP}`);
         return { ltp: inst.lastLTP, instrumentId, cached: true };
@@ -403,24 +409,13 @@ class MarketDataService {
 
       const allResults = [];
       for (const batch of batches) {
-         const resp = await axios.post(url, {
-				mode: 'FULL',
-				exchangeTokens: { [optionExchange]: batch },
-				}, {
-				headers: {
-					'Authorization': `Bearer ${token}`,
-					'Content-Type': 'application/json',
-					'Accept': 'application/json',
-					'X-UserType': 'USER',
-					'X-SourceID': 'WEB',
-					'X-ClientLocalIP': '127.0.0.1',
-					'X-ClientPublicIP': '127.0.0.1',
-					'X-MACAddress': '00:00:00:00:00:00',
-					'X-PrivateKey': this.brokerConfig.apiKey || '',
-				},
-				timeout: 15000,
-				});
-
+        const resp = await axios.post(url, {
+          mode: 'FULL',
+          exchangeTokens: { [optionExchange]: batch },
+        }, {
+          headers: this._headers(token),
+          timeout: 15000,
+        });
 
         const responseData = resp.data;
         let fetched = null;
@@ -479,40 +474,26 @@ class MarketDataService {
       return { chainData, premiums, instrumentId };
     } catch (err) {
       logger.error(`[${instrumentId}] Option chain fetch error: ${err.message}`);
-      
-      // FIX: Handle 403 errors with token refresh
+
       if (err.response?.status === 403) {
         logger.warn(`[${instrumentId}] Got 403 Forbidden on option chain - attempting token refresh...`);
         const refreshed = await this._refreshAuthToken();
         if (refreshed && tokens.length > 0) {
           logger.info(`[${instrumentId}] Token refreshed, retrying option chain fetch...`);
-          // Retry once after refresh
           try {
-            const token = this.authToken || '';
-            const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
             const batches = [];
             for (let i = 0; i < tokens.length; i += 50) batches.push(tokens.slice(i, i + 50));
-            
+
             const allResults = [];
             for (const batch of batches) {
               const resp = await axios.post(url, {
                 mode: 'FULL',
                 exchangeTokens: { [optionExchange]: batch },
               }, {
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                  'Accept': 'application/json',
-                  'X-UserType': 'USER',
-                  'X-SourceID': 'WEB',
-                  'X-ClientLocalIP': '127.0.0.1',
-                  'X-ClientPublicIP': '127.0.0.1',
-                  'X-MACAddress': '00:00:00:00:00:00',
-                  'X-PrivateKey': this.brokerConfig.apiKey || '',
-                },
+                headers: this._headers(),
                 timeout: 15000,
               });
-              
+
               const responseData = resp.data;
               let fetched = null;
               if (responseData?.data?.fetched) fetched = responseData.data.fetched;
@@ -521,7 +502,7 @@ class MarketDataService {
               else if (Array.isArray(responseData)) fetched = responseData;
               if (Array.isArray(fetched)) allResults.push(...fetched);
             }
-            
+
             if (allResults.length > 0) {
               const chainData = [];
               const strikes = Object.keys(strikeMap).map(Number).sort((a, b) => a - b);
@@ -534,7 +515,7 @@ class MarketDataService {
                   PE: peData ? { ltp: parseFloat(peData.ltp) || 0, oi: parseInt(peData.oi) || 0, volume: parseInt(peData.volume) || 0, bid: parseFloat(peData.bid) || 0, ask: parseFloat(peData.ask) || 0, token: peData.symbolToken } : null,
                 });
               }
-              
+
               inst.lastChain = chainData;
               const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
               const atmRow = chainData.find(r => r.strikePrice === atmStrike);
@@ -551,7 +532,7 @@ class MarketDataService {
           }
         }
       }
-      
+
       if (inst.lastChain) {
         const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
         const atmRow = inst.lastChain.find(r => r.strikePrice === atmStrike);
@@ -634,28 +615,29 @@ class MarketDataService {
     logger.info(`MarketDataService auth token set: ${authToken ? authToken.substring(0,20) + '...' : 'null'}`);
   }
 
+  // FIX: mutex for token refresh — only one in-flight request at a time
   async _refreshAuthToken() {
+    if (this._refreshPromise) return this._refreshPromise;
+    this._refreshPromise = this._doRefreshAuthToken();
+    try {
+      return await this._refreshPromise;
+    } finally {
+      this._refreshPromise = null;
+    }
+  }
+
+  async _doRefreshAuthToken() {
     if (!this.refreshToken) {
       logger.warn('No refresh token available for auto-refresh');
       return false;
     }
-    
+
     try {
       const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/auth/angelbroking/jwt/v1/generateTokens`;
       const resp = await axios.post(url, {
         refreshToken: this.refreshToken,
       }, {
-        headers: {
-          'Authorization': `Bearer ${this.authToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': '127.0.0.1',
-          'X-ClientPublicIP': '127.0.0.1',
-          'X-MACAddress': '00:00:00:00:00:00',
-          'X-PrivateKey': this.brokerConfig.apiKey || '',
-        },
+        headers: this._headers(),
         timeout: 10000,
       });
 
@@ -680,13 +662,11 @@ class MarketDataService {
     if (this._refreshInterval) {
       clearInterval(this._refreshInterval);
     }
-    
-    // Refresh token every 30 minutes (1800000 ms)
-    // Angel One tokens are valid for full day but refresh prevents expiry issues
+
     this._refreshInterval = setInterval(async () => {
       await this._refreshAuthToken();
     }, 30 * 60 * 1000);
-    
+
     logger.info('[TOKEN_REFRESH] Token refresh loop started (every 30 minutes)');
   }
 

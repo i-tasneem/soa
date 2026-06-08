@@ -1,11 +1,14 @@
 // ============================================================
 // DATABASE — SQLite Setup & Schema
 // Phase 1: server timestamps, session query, feed health
+// FIX: Async write queue to prevent event-loop blocking under
+// multi-instrument load. Batches writes every 5 seconds.
 // ============================================================
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const logger = require('./logger');
+
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 const dbPath = path.join(dataDir, 'soa-trader.db');
@@ -36,19 +39,19 @@ function initializeTables() {
     CREATE INDEX IF NOT EXISTS idx_feed_health_timestamp ON feed_health(timestamp);
     CREATE INDEX IF NOT EXISTS idx_feed_health_name ON feed_health(feed_name);
   `);
-  
-	db.exec(`
-	CREATE TABLE IF NOT EXISTS setup_escalations (
-		id TEXT PRIMARY KEY,
-		setup_id TEXT,
-		escalated_to_signal_id TEXT,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-	`);
-	
-	addColumnIfMissing('trades', 'is_early_entry', 'BOOLEAN DEFAULT FALSE');
-	addColumnIfMissing('trades', 'early_entry_reason', 'TEXT');
-	addColumnIfMissing('signals', 'strike_value', 'INTEGER');
+
+  db.exec(`
+  CREATE TABLE IF NOT EXISTS setup_escalations (
+    id TEXT PRIMARY KEY,
+    setup_id TEXT,
+    escalated_to_signal_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  `);
+
+  addColumnIfMissing('trades', 'is_early_entry', 'BOOLEAN DEFAULT FALSE');
+  addColumnIfMissing('trades', 'early_entry_reason', 'TEXT');
+  addColumnIfMissing('signals', 'strike_value', 'INTEGER');
 
   addColumnIfMissing('signals', 'server_timestamp', 'BIGINT');
   addColumnIfMissing('signals', 'session_id', 'TEXT');
@@ -56,30 +59,108 @@ function initializeTables() {
   logger.info('✅ Database tables initialized');
 }
 
-function logSignal(signalData, serverTime = Date.now(), sessionId = null) {
-  try {
-    const ts = Number(serverTime) || Date.now();
-    db.prepare(`INSERT OR REPLACE INTO signals (id, timestamp, server_timestamp, session_id, date, type, confidence, entry_price, entry_premium, target_premium, sl_premium, vwap, ema5, ema9, ema15, factors, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(signalData.id || `SIG_${Date.now()}`, ts, ts, sessionId || signalData.sessionId || null, getTodayIST(), signalData.type, signalData.confidence, signalData.price, signalData.entryPremium, signalData.target, signalData.sl, signalData.vwap, signalData.ema5, signalData.ema9, signalData.ema15, JSON.stringify(signalData.factors || []), signalData.tradeStatus || 'OPEN');
-  } catch (err) { logger.error('❌ Failed to log signal', { error: err.message }); }
+// ── ASYNC WRITE QUEUE ──────────────────────────────────────
+// FIX: better-sqlite3 is synchronous. To prevent event-loop blocking
+// under multi-instrument load, we batch writes and flush every 5s.
+const writeQueue = [];
+let flushTimer = null;
+
+function enqueue(sql, params) {
+  writeQueue.push({ sql, params });
+  if (!flushTimer) {
+    flushTimer = setTimeout(flushQueue, 5000);
+  }
 }
-function updateSignalOutcome(signalId, outcome, pnl) { try { db.prepare(`UPDATE signals SET outcome = ?, pnl = ?, status = ? WHERE id = ?`).run(outcome, pnl, outcome === 'WIN' ? 'CLOSED_WIN' : 'CLOSED_LOSS', signalId); } catch (err) { logger.error('❌ Failed to update signal outcome', { error: err.message }); } }
-function logTrade(tradeData) { try { db.prepare(`INSERT INTO trades (id, signal_id, entry_sensex_price, entry_premium, type, status) VALUES (?, ?, ?, ?, ?, ?)`).run(tradeData.id || `TRADE_${Date.now()}`, tradeData.signalId, tradeData.entrySensexPrice, tradeData.entryPremium, tradeData.type, 'OPEN'); } catch (err) { logger.error('❌ Failed to log trade', { error: err.message }); } }
-function closeTrade(tradeId, exitPrice, exitPremium, pnl) { try { const status = pnl >= 0 ? 'CLOSED_WIN' : 'CLOSED_LOSS'; db.prepare(`UPDATE trades SET exit_sensex_price = ?, exit_premium = ?, pnl = ?, pnl_percentage = (? / entry_premium) * 100, status = ?, close_time = CURRENT_TIMESTAMP WHERE id = ?`).run(exitPrice, exitPremium, pnl, pnl, status, tradeId); } catch (err) { logger.error('❌ Failed to close trade', { error: err.message }); } }
-function getDailyStats(date) { try { return db.prepare(`SELECT COUNT(*) as total_signals, SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END) as winning_signals, SUM(CASE WHEN outcome = 'LOSS' THEN 1 ELSE 0 END) as losing_signals, SUM(pnl) as total_pnl, AVG(pnl) as avg_pnl, MAX(pnl) as max_win, MIN(pnl) as max_loss FROM signals WHERE date = ?`).get(date); } catch (err) { logger.error('❌ Failed to get daily stats', { error: err.message }); return null; } }
-function getMonthlyStats(month) { try { return db.prepare(`SELECT COUNT(*) as total_signals, SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END) as winning_signals, SUM(CASE WHEN outcome = 'LOSS' THEN 1 ELSE 0 END) as losing_signals, SUM(pnl) as total_pnl, AVG(pnl) as avg_pnl FROM signals WHERE strftime('%Y-%m', date) = ?`).get(month); } catch (err) { logger.error('❌ Failed to get monthly stats', { error: err.message }); return null; } }
-function getRecentSignals(limit = 10) { try { return db.prepare(`SELECT * FROM signals ORDER BY timestamp DESC LIMIT ?`).all(limit); } catch (err) { logger.error('❌ Failed to get recent signals', { error: err.message }); return []; } }
+
+function flushQueue() {
+  flushTimer = null;
+  if (writeQueue.length === 0) return;
+  const batch = writeQueue.splice(0, writeQueue.length);
+  const start = process.hrtime.bigint();
+  try {
+    const insert = db.transaction((items) => {
+      for (const { sql, params } of items) {
+        db.prepare(sql).run(...params);
+      }
+    });
+    insert(batch);
+    const elapsed = Number(process.hrtime.bigint() - start) / 1e6;
+    if (elapsed > 50) {
+      logger.warn(`DB batch flush took ${elapsed.toFixed(1)}ms for ${batch.length} ops`);
+    }
+  } catch (err) {
+    logger.error('❌ DB batch flush failed', { error: err.message, batchSize: batch.length });
+  }
+}
+
+function logSignal(signalData, serverTime = Date.now(), sessionId = null) {
+  enqueue(
+    `INSERT OR REPLACE INTO signals (id, timestamp, server_timestamp, session_id, date, type, confidence, entry_price, entry_premium, target_premium, sl_premium, vwap, ema5, ema9, ema15, factors, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      signalData.id || `SIG_${Date.now()}`,
+      Number(serverTime) || Date.now(),
+      Number(serverTime) || Date.now(),
+      sessionId || signalData.sessionId || null,
+      getTodayIST(),
+      signalData.type,
+      signalData.confidence,
+      signalData.price,
+      signalData.entryPremium,
+      signalData.target,
+      signalData.sl,
+      signalData.vwap?.vwap ?? signalData.vwap ?? null,
+      signalData.ema5,
+      signalData.ema9,
+      signalData.ema15,
+      JSON.stringify(signalData.factors || []),
+      signalData.tradeStatus || 'OPEN'
+    ]
+  );
+}
+
+function updateSignalOutcome(signalId, outcome, pnl) {
+  enqueue(
+    `UPDATE signals SET outcome = ?, pnl = ?, status = ? WHERE id = ?`,
+    [outcome, pnl, outcome === 'WIN' ? 'CLOSED_WIN' : 'CLOSED_LOSS', signalId]
+  );
+}
+
+function logTrade(tradeData) {
+  enqueue(
+    `INSERT INTO trades (id, signal_id, entry_sensex_price, entry_premium, type, status) VALUES (?, ?, ?, ?, ?, ?)`,
+    [tradeData.id || `TRADE_${Date.now()}`, tradeData.signalId, tradeData.entrySensexPrice, tradeData.entryPremium, tradeData.type, 'OPEN']
+  );
+}
+
+function closeTrade(tradeId, exitPrice, exitPremium, pnl) {
+  enqueue(
+    `UPDATE trades SET exit_sensex_price = ?, exit_premium = ?, pnl = ?, pnl_percentage = (? / entry_premium) * 100, status = ?, close_time = CURRENT_TIMESTAMP WHERE id = ?`,
+    [exitPrice, exitPremium, pnl, pnl, pnl >= 0 ? 'CLOSED_WIN' : 'CLOSED_LOSS', tradeId]
+  );
+}
+
+function getDailyStats(date) {
+  try {
+    return db.prepare(`SELECT COUNT(*) as total_signals, SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END) as winning_signals, SUM(CASE WHEN outcome = 'LOSS' THEN 1 ELSE 0 END) as losing_signals, SUM(pnl) as total_pnl, AVG(pnl) as avg_pnl, MAX(pnl) as max_win, MIN(pnl) as max_loss FROM signals WHERE date = ?`).get(date);
+  } catch (err) { logger.error('❌ Failed to get daily stats', { error: err.message }); return null; }
+}
+
+function getMonthlyStats(month) {
+  try {
+    return db.prepare(`SELECT COUNT(*) as total_signals, SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END) as winning_signals, SUM(CASE WHEN outcome = 'LOSS' THEN 1 ELSE 0 END) as losing_signals, SUM(pnl) as total_pnl, AVG(pnl) as avg_pnl FROM signals WHERE strftime('%Y-%m', date) = ?`).get(month);
+  } catch (err) { logger.error('❌ Failed to get monthly stats', { error: err.message }); return null; }
+}
+
+function getRecentSignals(limit = 10) {
+  try {
+    return db.prepare(`SELECT * FROM signals ORDER BY timestamp DESC LIMIT ?`).all(limit);
+  } catch (err) { logger.error('❌ Failed to get recent signals', { error: err.message }); return []; }
+}
+
 function getCalibrationSignals(limit = 200) {
   try {
     return db.prepare(`
-      SELECT
-        id,
-        timestamp,
-        date,
-        type,
-        confidence,
-        outcome,
-        pnl,
-        status
+      SELECT id, timestamp, date, type, confidence, outcome, pnl, status
       FROM signals
       WHERE type IN ('BUY_CE', 'BUY_PE')
         AND (outcome IS NOT NULL OR pnl IS NOT NULL OR status IN ('CLOSED_WIN', 'CLOSED_LOSS'))
@@ -91,11 +172,40 @@ function getCalibrationSignals(limit = 200) {
     return [];
   }
 }
-function getSignalsByDate(date, limit = 100) { try { return db.prepare(`SELECT * FROM signals WHERE date = ? ORDER BY timestamp DESC LIMIT ?`).all(date, limit); } catch (err) { logger.error('❌ Failed to get signals by date', { error: err.message, date }); return []; } }
-function getSignalsAfterTimestamp(timestamp, limit = 100) { try { const ts = timestamp instanceof Date ? timestamp.getTime() : Number(timestamp); return db.prepare(`SELECT * FROM signals WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?`).all(ts, limit); } catch (err) { logger.error('❌ Failed to get signals after timestamp', { error: err.message }); return []; } }
-function getWinRate(days = 30) { try { const result = db.prepare(`SELECT SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END) as wins, COUNT(*) as total FROM signals WHERE date >= date('now', ? || ' days')`).get(-days); return result.total ? parseFloat(((result.wins / result.total) * 100).toFixed(2)) : 0; } catch (err) { logger.error('❌ Failed to calculate win rate', { error: err.message }); return 0; } }
-function logMetric(metricType, metricName, value, metadata = null) { try { db.prepare(`INSERT INTO metrics (metric_type, metric_name, value, metadata) VALUES (?, ?, ?, ?)`).run(metricType, metricName, value, metadata ? JSON.stringify(metadata) : null); } catch (err) { logger.error('❌ Failed to log metric', { error: err.message }); } }
-function logFeedHealth(feedName, ageMs, isStale) { try { db.prepare(`INSERT INTO feed_health (feed_name, age_ms, is_stale) VALUES (?, ?, ?)`).run(feedName, ageMs, isStale ? 1 : 0); } catch (err) { logger.error('❌ Failed to log feed health', { error: err.message }); } }
+
+function getSignalsByDate(date, limit = 100) {
+  try {
+    return db.prepare(`SELECT * FROM signals WHERE date = ? ORDER BY timestamp DESC LIMIT ?`).all(date, limit);
+  } catch (err) { logger.error('❌ Failed to get signals by date', { error: err.message, date }); return []; }
+}
+
+function getSignalsAfterTimestamp(timestamp, limit = 100) {
+  try {
+    const ts = timestamp instanceof Date ? timestamp.getTime() : Number(timestamp);
+    return db.prepare(`SELECT * FROM signals WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?`).all(ts, limit);
+  } catch (err) { logger.error('❌ Failed to get signals after timestamp', { error: err.message }); return []; }
+}
+
+function getWinRate(days = 30) {
+  try {
+    const result = db.prepare(`SELECT SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END) as wins, COUNT(*) as total FROM signals WHERE date >= date('now', ? || ' days')`).get(-days);
+    return result.total ? parseFloat(((result.wins / result.total) * 100).toFixed(2)) : 0;
+  } catch (err) { logger.error('❌ Failed to calculate win rate', { error: err.message }); return 0; }
+}
+
+function logMetric(metricType, metricName, value, metadata = null) {
+  enqueue(
+    `INSERT INTO metrics (metric_type, metric_name, value, metadata) VALUES (?, ?, ?, ?)`,
+    [metricType, metricName, value, metadata ? JSON.stringify(metadata) : null]
+  );
+}
+
+function logFeedHealth(feedName, ageMs, isStale) {
+  enqueue(
+    `INSERT INTO feed_health (feed_name, age_ms, is_stale) VALUES (?, ?, ?)`,
+    [feedName, ageMs, isStale ? 1 : 0]
+  );
+}
 
 module.exports = {
   db,
@@ -112,5 +222,7 @@ module.exports = {
   getSignalsAfterTimestamp,
   getWinRate,
   logMetric,
-  logFeedHealth
+  logFeedHealth,
+  // Expose flush for graceful shutdown
+  _flushQueue: flushQueue,
 };
