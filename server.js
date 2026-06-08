@@ -98,11 +98,13 @@ async function authenticate() {
       jwtToken = authToken;
       userProfile = resp.data.data;
 
-      multiOrchestrator.setAuthToken(authToken);
-      if (multiOrchestrator.marketData) {
-        multiOrchestrator.marketData.brokerConfig.jwtToken = jwtToken;
-        multiOrchestrator.marketData.brokerConfig.baseUrl = config.angel.baseUrl;
-      }
+		multiOrchestrator.setAuthToken(authToken);
+			if (multiOrchestrator.marketData) {
+			multiOrchestrator.marketData.brokerConfig.jwtToken = jwtToken;
+			multiOrchestrator.marketData.brokerConfig.baseUrl = config.angel.baseUrl;
+			multiOrchestrator.marketData.brokerConfig.apiKey = config.angel.apiKey;
+			}
+
 
       logger.info('✅ Angel One authenticated successfully');
       broadcastToAllClients({ type: 'AUTH_STATUS', status: 'connected', message: 'Angel One Live' });

@@ -195,19 +195,21 @@ class MarketDataService {
 
       logger.info(`[${instrumentId}] LTP request: ${JSON.stringify(payload)} | token=${token.substring(0,20)}...`);
 
-      const resp = await axios.post(url, payload, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': '127.0.0.1',
-          'X-ClientPublicIP': '127.0.0.1',
-          'X-MACAddress': '00:00:00:00:00:00',
-        },
-        timeout: 10000,
-      });
+       const resp = await axios.post(url, payload, {
+		headers: {
+			'Authorization': `Bearer ${token}`,
+			'Content-Type': 'application/json',
+			'Accept': 'application/json',
+			'X-UserType': 'USER',
+			'X-SourceID': 'WEB',
+			'X-ClientLocalIP': '127.0.0.1',
+			'X-ClientPublicIP': '127.0.0.1',
+			'X-MACAddress': '00:00:00:00:00:00',
+			'X-PrivateKey': this.brokerConfig.apiKey || '',
+		},
+		timeout: 10000,
+		});
+
 
       // EXTENSIVE LOGGING
       const respStr = JSON.stringify(resp.data);
@@ -343,22 +345,24 @@ class MarketDataService {
 
       const allResults = [];
       for (const batch of batches) {
-        const resp = await axios.post(url, {
-          mode: 'FULL',
-          exchangeTokens: { [optionExchange]: batch },
-        }, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-UserType': 'USER',
-            'X-SourceID': 'WEB',
-            'X-ClientLocalIP': '127.0.0.1',
-            'X-ClientPublicIP': '127.0.0.1',
-            'X-MACAddress': '00:00:00:00:00:00',
-          },
-          timeout: 15000,
-        });
+         const resp = await axios.post(url, {
+				mode: 'FULL',
+				exchangeTokens: { [optionExchange]: batch },
+				}, {
+				headers: {
+					'Authorization': `Bearer ${token}`,
+					'Content-Type': 'application/json',
+					'Accept': 'application/json',
+					'X-UserType': 'USER',
+					'X-SourceID': 'WEB',
+					'X-ClientLocalIP': '127.0.0.1',
+					'X-ClientPublicIP': '127.0.0.1',
+					'X-MACAddress': '00:00:00:00:00:00',
+					'X-PrivateKey': this.brokerConfig.apiKey || '',
+				},
+				timeout: 15000,
+				});
+
 
         const responseData = resp.data;
         let fetched = null;
