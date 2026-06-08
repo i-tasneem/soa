@@ -114,9 +114,15 @@ class InstrumentEngine {
       logger.error(`[${this.id}] Indicator calculation error: ${err.message}`);
       return;
     }
+
+    // FIX 1: Abort if not enough candles to generate indicators yet
+    if (!indicators) return; 
+
     this.lastIndicators = indicators;
     this.lastPrice = ltp;
-    if (indicators.atr) this.lastATR = indicators.atr;
+    
+    // FIX 2: Change .atr to .atr14 to match indicators.js output
+    if (indicators.atr14) this.lastATR = indicators.atr14;
 
     let state;
     try {

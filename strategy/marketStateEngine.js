@@ -28,7 +28,8 @@ class MarketStateEngine {
       return { state: this.state, confidence: this.confidence };
     }
 
-    const { ema5, ema9, ema21, vwap, bb, rsi, atr, volume } = indicators;
+    // Destructure atr14 instead, and alias it to atr for the rest of your logic
+	const { ema5, ema9, ema21, vwap, bb, rsi, atr14: atr, volume } = indicators;
     const last3 = candles.slice(-3);
     const lastCandle = last3[last3.length - 1];
     const prevCandle = last3[last3.length - 2];
