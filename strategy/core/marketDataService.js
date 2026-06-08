@@ -22,6 +22,11 @@ class MarketDataService {
     this.authToken = null;
     this._masterCache = null;
     this._masterCacheTime = 0;
+    
+    // NEW: Token refresh mechanism
+    this.refreshToken = null;
+    this._refreshInterval = null;
+    this._lastTokenRefreshTime = 0;
   }
 
   async _fetchMaster() {
@@ -282,6 +287,59 @@ class MarketDataService {
       return { ltp, instrumentId };
     } catch (err) {
       logger.error(`[${instrumentId}] LTP fetch error: ${err.message}`);
+      
+      // FIX: Handle 403 errors with token refresh
+      if (err.response?.status === 403) {
+        logger.warn(`[${instrumentId}] Got 403 Forbidden - attempting token refresh...`);
+        const refreshed = await this._refreshAuthToken();
+        if (refreshed) {
+          logger.info(`[${instrumentId}] Token refreshed, retrying LTP fetch...`);
+          // Retry once after refresh
+          try {
+            const token = this.authToken || '';
+            const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
+            const payload = {
+              mode: 'LTP',
+              exchangeTokens: { [indexExchange]: [indexToken] },
+            };
+            const retryResp = await axios.post(url, payload, {
+              headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-UserType': 'USER',
+                'X-SourceID': 'WEB',
+                'X-ClientLocalIP': '127.0.0.1',
+                'X-ClientPublicIP': '127.0.0.1',
+                'X-MACAddress': '00:00:00:00:00:00',
+                'X-PrivateKey': this.brokerConfig.apiKey || '',
+              },
+              timeout: 10000,
+            });
+            
+            const responseData = retryResp.data;
+            let fetched = null;
+            if (responseData?.data?.fetched) fetched = responseData.data.fetched;
+            else if (responseData?.fetched) fetched = responseData.fetched;
+            else if (Array.isArray(responseData?.data)) fetched = responseData.data;
+            else if (Array.isArray(responseData)) fetched = responseData;
+            
+            if (fetched && fetched.length > 0) {
+              const first = fetched[0];
+              const ltpVal = first.ltp || first.lastTradedPrice || first.close || first.price;
+              const ltp = parseFloat(ltpVal);
+              if (Number.isFinite(ltp)) {
+                inst.lastLTP = ltp;
+                logger.info(`[${instrumentId}] LTP retry successful after token refresh: ${ltp}`);
+                return { ltp, instrumentId };
+              }
+            }
+          } catch (retryErr) {
+            logger.error(`[${instrumentId}] LTP retry failed: ${retryErr.message}`);
+          }
+        }
+      }
+      
       if (inst && inst.lastLTP) {
         logger.info(`[${instrumentId}] Returning cached LTP after error: ${inst.lastLTP}`);
         return { ltp: inst.lastLTP, instrumentId, cached: true };
@@ -421,6 +479,79 @@ class MarketDataService {
       return { chainData, premiums, instrumentId };
     } catch (err) {
       logger.error(`[${instrumentId}] Option chain fetch error: ${err.message}`);
+      
+      // FIX: Handle 403 errors with token refresh
+      if (err.response?.status === 403) {
+        logger.warn(`[${instrumentId}] Got 403 Forbidden on option chain - attempting token refresh...`);
+        const refreshed = await this._refreshAuthToken();
+        if (refreshed && tokens.length > 0) {
+          logger.info(`[${instrumentId}] Token refreshed, retrying option chain fetch...`);
+          // Retry once after refresh
+          try {
+            const token = this.authToken || '';
+            const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/secure/angelbroking/market/v1/quote/`;
+            const batches = [];
+            for (let i = 0; i < tokens.length; i += 50) batches.push(tokens.slice(i, i + 50));
+            
+            const allResults = [];
+            for (const batch of batches) {
+              const resp = await axios.post(url, {
+                mode: 'FULL',
+                exchangeTokens: { [optionExchange]: batch },
+              }, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+                  'X-UserType': 'USER',
+                  'X-SourceID': 'WEB',
+                  'X-ClientLocalIP': '127.0.0.1',
+                  'X-ClientPublicIP': '127.0.0.1',
+                  'X-MACAddress': '00:00:00:00:00:00',
+                  'X-PrivateKey': this.brokerConfig.apiKey || '',
+                },
+                timeout: 15000,
+              });
+              
+              const responseData = resp.data;
+              let fetched = null;
+              if (responseData?.data?.fetched) fetched = responseData.data.fetched;
+              else if (responseData?.fetched) fetched = responseData.fetched;
+              else if (Array.isArray(responseData?.data)) fetched = responseData.data;
+              else if (Array.isArray(responseData)) fetched = responseData;
+              if (Array.isArray(fetched)) allResults.push(...fetched);
+            }
+            
+            if (allResults.length > 0) {
+              const chainData = [];
+              const strikes = Object.keys(strikeMap).map(Number).sort((a, b) => a - b);
+              for (const strike of strikes) {
+                const ceData = allResults.find(r => r.symbolToken === strikeMap[strike].CE);
+                const peData = allResults.find(r => r.symbolToken === strikeMap[strike].PE);
+                chainData.push({
+                  strikePrice: strike,
+                  CE: ceData ? { ltp: parseFloat(ceData.ltp) || 0, oi: parseInt(ceData.oi) || 0, volume: parseInt(ceData.volume) || 0, bid: parseFloat(ceData.bid) || 0, ask: parseFloat(ceData.ask) || 0, token: ceData.symbolToken } : null,
+                  PE: peData ? { ltp: parseFloat(peData.ltp) || 0, oi: parseInt(peData.oi) || 0, volume: parseInt(peData.volume) || 0, bid: parseFloat(peData.bid) || 0, ask: parseFloat(peData.ask) || 0, token: peData.symbolToken } : null,
+                });
+              }
+              
+              inst.lastChain = chainData;
+              const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
+              const atmRow = chainData.find(r => r.strikePrice === atmStrike);
+              const premiums = {
+                ce: atmRow?.CE ? { premium: atmRow.CE.ltp, strike: atmStrike, token: atmRow.CE.token } : null,
+                pe: atmRow?.PE ? { premium: atmRow.PE.ltp, strike: atmStrike, token: atmRow.PE.token } : null,
+                atmStrike,
+              };
+              logger.info(`[${instrumentId}] Option chain retry successful after token refresh`);
+              return { chainData, premiums, instrumentId };
+            }
+          } catch (retryErr) {
+            logger.error(`[${instrumentId}] Option chain retry failed: ${retryErr.message}`);
+          }
+        }
+      }
+      
       if (inst.lastChain) {
         const atmStrike = Math.round(spotPrice / strikeStep) * strikeStep;
         const atmRow = inst.lastChain.find(r => r.strikePrice === atmStrike);
@@ -492,10 +623,79 @@ class MarketDataService {
     }
   }
 
-  setAuthToken(authToken) {
+  setAuthToken(authToken, refreshToken = null) {
     this.authToken = authToken;
+    if (refreshToken) {
+      this.refreshToken = refreshToken;
+      this.brokerConfig.refreshToken = refreshToken;
+      this._startTokenRefreshLoop();
+    }
     this.brokerConfig.jwtToken = authToken;
     logger.info(`MarketDataService auth token set: ${authToken ? authToken.substring(0,20) + '...' : 'null'}`);
+  }
+
+  async _refreshAuthToken() {
+    if (!this.refreshToken) {
+      logger.warn('No refresh token available for auto-refresh');
+      return false;
+    }
+    
+    try {
+      const url = `${this.brokerConfig.baseUrl || 'https://apiconnect.angelone.in'}/rest/auth/angelbroking/jwt/v1/generateTokens`;
+      const resp = await axios.post(url, {
+        refreshToken: this.refreshToken,
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-UserType': 'USER',
+          'X-SourceID': 'WEB',
+          'X-ClientLocalIP': '127.0.0.1',
+          'X-ClientPublicIP': '127.0.0.1',
+          'X-MACAddress': '00:00:00:00:00:00',
+          'X-PrivateKey': this.brokerConfig.apiKey || '',
+        },
+        timeout: 10000,
+      });
+
+      if (resp.data && (resp.data.status === true || resp.data.success === true)) {
+        const newToken = resp.data.data.jwtToken;
+        this.authToken = newToken;
+        this.brokerConfig.jwtToken = newToken;
+        this._lastTokenRefreshTime = Date.now();
+        logger.info(`[TOKEN_REFRESH] Successfully refreshed JWT token at ${new Date().toISOString()}`);
+        return true;
+      } else {
+        logger.error(`[TOKEN_REFRESH] Failed: ${resp.data?.message || 'Unknown error'}`);
+        return false;
+      }
+    } catch (err) {
+      logger.error(`[TOKEN_REFRESH] Error: ${err.message}`);
+      return false;
+    }
+  }
+
+  _startTokenRefreshLoop() {
+    if (this._refreshInterval) {
+      clearInterval(this._refreshInterval);
+    }
+    
+    // Refresh token every 30 minutes (1800000 ms)
+    // Angel One tokens are valid for full day but refresh prevents expiry issues
+    this._refreshInterval = setInterval(async () => {
+      await this._refreshAuthToken();
+    }, 30 * 60 * 1000);
+    
+    logger.info('[TOKEN_REFRESH] Token refresh loop started (every 30 minutes)');
+  }
+
+  _stopTokenRefreshLoop() {
+    if (this._refreshInterval) {
+      clearInterval(this._refreshInterval);
+      this._refreshInterval = null;
+      logger.info('[TOKEN_REFRESH] Token refresh loop stopped');
+    }
   }
 }
 

@@ -19,9 +19,9 @@ class MultiOrchestrator {
     this.externalBroadcast = null;
   }
 
-  setAuthToken(authToken) {
+  setAuthToken(authToken, refreshToken = null) {
     if (this.marketData && typeof this.marketData.setAuthToken === 'function') {
-      this.marketData.setAuthToken(authToken);
+      this.marketData.setAuthToken(authToken, refreshToken);
       logger.info('Auth token propagated to market data service');
     }
   }
