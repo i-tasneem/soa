@@ -1,7 +1,7 @@
 // ============================================================
 // SOA TRADER SERVER — Multi-Instrument Architecture
 // Node.js 20, Express 4, WebSocket (ws)
-// FIX: CORS whitelist, IST day reset propagation
+// FIX: CORS whitelist, IST day reset propagation, async instrument init
 // ============================================================
 
 const express = require('express');
@@ -117,7 +117,9 @@ async function authenticate() {
 
       logger.info('✅ Angel One authenticated successfully');
       broadcastToAllClients({ type: 'AUTH_STATUS', status: 'connected', message: 'Angel One Live' });
-      initializeInstruments();
+
+      // ✅ FIX: await async initializeInstruments
+      await initializeInstruments();
     } else {
       const msg = resp.data?.message || resp.data?.errorCode || 'Authentication failed';
       logger.error(`❌ Login rejected: ${msg}`);
@@ -134,14 +136,15 @@ async function authenticate() {
   }
 }
 
-function initializeInstruments() {
+// ✅ FIX: Now async — awaits each addInstrument before moving to next
+async function initializeInstruments() {
   logger.info(`Initializing instruments: ${config.activeInstruments.join(', ')}`);
 
   for (const instId of config.activeInstruments) {
     const profile = profiles[instId];
     if (profile) {
       try {
-        multiOrchestrator.addInstrument(instId, profile);
+        await multiOrchestrator.addInstrument(instId, profile); // ✅ await async
         logger.info(`✅ Added instrument: ${instId}`);
       } catch (err) {
         logger.error(`❌ Failed to add instrument ${instId}: ${err.message}`);

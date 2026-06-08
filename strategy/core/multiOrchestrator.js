@@ -1,11 +1,10 @@
 // ============================================================
-// MULTI-ORCHESTRATOR (v3 — Phase 2)
+// MULTI-ORCHESTRATOR (v4 — PRODUCTION FIX)
 // CRITICAL FIXES:
-// 1. Pass full instrument profile to marketDataService.loadInstrumentMaster()
-// 2. Add setAuthToken() proxy for server.js compatibility
-// 3. Polling callback args match engine method signatures
-// 4. Broadcast TRADING_HALTED when daily loss limit hit
-// 5. IST day reset propagation
+// 1. addInstrument is now async — awaits loadInstrumentMaster before polling
+// 2. Polling only starts after master is successfully loaded
+// 3. Proper error handling: no polling if master load fails
+// 4. IST day reset propagation
 // ============================================================
 
 const { InstrumentEngine } = require('./instrumentEngine');
@@ -28,7 +27,8 @@ class MultiOrchestrator {
     }
   }
 
-  addInstrument(instrumentId, profile) {
+  // ✅ FIX: Now async — awaits master load before starting polling
+  async addInstrument(instrumentId, profile) {
     if (this.engines.has(instrumentId)) {
       logger.warn(`Instrument ${instrumentId} already added, skipping`);
       return;
@@ -63,15 +63,17 @@ class MultiOrchestrator {
 
     this.engines.set(instrumentId, engine);
 
-    this.marketData.loadInstrumentMaster(instrumentId, null, profile)
-      .then(() => {
-        logger.info(`Added instrument: ${instrumentId} (${profile.name})`);
-      })
-      .catch(err => {
-        logger.error(`Failed to load instrument master for ${instrumentId}: ${err.message}`);
-      });
+    // ✅ FIX: Await master load BEFORE starting polling
+    try {
+      await this.marketData.loadInstrumentMaster(instrumentId, null, profile);
+      logger.info(`✅ Instrument master loaded: ${instrumentId}`);
+    } catch (err) {
+      logger.error(`❌ Failed to load instrument master for ${instrumentId}: ${err.message}`);
+      // Do NOT start polling if master failed
+      return;
+    }
 
-    // FIX: callback receives (type, ...args) where args match engine method signatures
+    // ✅ FIX: Only start polling after master is loaded
     this.marketData.startPolling(instrumentId, (type, ...args) => {
       const eng = this.engines.get(instrumentId);
       if (!eng) return;
@@ -79,7 +81,7 @@ class MultiOrchestrator {
       if (type === 'CHAIN') eng.onOptionChain(...args);
     });
 
-    logger.info(`✅ Added instrument: ${instrumentId}`);
+    logger.info(`✅ Added instrument: ${instrumentId} (polling active)`);
   }
 
   addStock(stockName) {
