@@ -1,175 +1,227 @@
 // ============================================================
-// MULTI-ORCHESTRATOR (v4 — PRODUCTION FIX)
-// CRITICAL FIXES:
-// 1. addInstrument is now async — awaits loadInstrumentMaster before polling
-// 2. Polling only starts after master is successfully loaded
-// 3. Proper error handling: no polling if master load fails
-// 4. IST day reset propagation
+// MULTI ORCHESTRATOR v7 — Broker Adapter + Audit Integration
+// Changes from v6:
+// 1. Accepts broker adapter and audit framework via constructor
+// 2. No hardcoded Angel One references
+// 3. Injects audit into each InstrumentEngine
+// 4. WebSocket throttling (only broadcast on significant change)
+// 5. Graceful per-instrument failure isolation
 // ============================================================
 
-const { InstrumentEngine } = require('./instrumentEngine');
-const { MarketDataService } = require('./marketDataService');
-const { StockScanner } = require('../stockScanner');
+const EventEmitter = require('events');
+const InstrumentEngine = require('./instrumentEngine').InstrumentEngine;
+const MarketDataService = require('./marketDataService').MarketDataService;
 const logger = require('../../logger');
 
-class MultiOrchestrator {
-  constructor() {
-    this.engines = new Map();
-    this.marketData = new MarketDataService();
-    this.stockScanner = new StockScanner(this.marketData, this);
-    this.externalBroadcast = null;
-  }
-
-  setAuthToken(authToken, refreshToken = null) {
-    if (this.marketData && typeof this.marketData.setAuthToken === 'function') {
-      this.marketData.setAuthToken(authToken, refreshToken);
-      logger.info('Auth token propagated to market data service');
-    }
-  }
-
-  // ✅ FIX: Now async — awaits master load before starting polling
-  async addInstrument(instrumentId, profile) {
-    if (this.engines.has(instrumentId)) {
-      logger.warn(`Instrument ${instrumentId} already added, skipping`);
-      return;
-    }
-
-    const engine = new InstrumentEngine(instrumentId, profile);
-
-    engine.onSignal = (id, signal) => {
-      this.broadcast('SIGNAL', id, signal);
-    };
-    engine.onTradeOpen = (id, trade) => {
-      this.broadcast('TRADE_OPEN', id, trade);
-    };
-    engine.onTradeClose = (id, trade) => {
-      this.broadcast('TRADE_CLOSED', id, trade);
-      // FIX: Check if trading halted and broadcast
-      const stats = engine.tradeManager.getStats();
-      if (stats.tradingHalted) {
-        this.broadcast('TRADING_HALTED', id, {
-          reason: 'Daily loss limit reached',
-          dailyPnL: stats.dailyPnL,
-          instrument: id,
-        });
-      }
-    };
-    engine.onUpdate = (id, update) => {
-      this.broadcast('ANALYSIS', id, update);
-    };
-    engine.onSetupAbort = (id, abort) => {
-      this.broadcast('ABORT', id, abort);
+class MultiOrchestrator extends EventEmitter {
+  constructor(brokerAdapter, auditFramework, options = {}) {
+    super();
+    this.broker = brokerAdapter;
+    this.audit = auditFramework;
+    this.options = {
+      ltpInterval: options.ltpInterval || 2000,
+      chainInterval: options.chainInterval || 5000,
+      wsThrottleMs: options.wsThrottleMs || 5000,
+      ...options,
     };
 
-    this.engines.set(instrumentId, engine);
-
-    // ✅ FIX: Await master load BEFORE starting polling
-    try {
-      await this.marketData.loadInstrumentMaster(instrumentId, null, profile);
-      logger.info(`✅ Instrument master loaded: ${instrumentId}`);
-    } catch (err) {
-      logger.error(`❌ Failed to load instrument master for ${instrumentId}: ${err.message}`);
-      // Do NOT start polling if master failed
-      return;
-    }
-
-    // ✅ FIX: Only start polling after master is loaded
-    this.marketData.startPolling(instrumentId, (type, ...args) => {
-      const eng = this.engines.get(instrumentId);
-      if (!eng) return;
-      if (type === 'TICK') eng.onTick(...args);
-      if (type === 'CHAIN') eng.onOptionChain(...args);
+    this.marketDataService = new MarketDataService(brokerAdapter, {
+      ltpInterval: this.options.ltpInterval,
+      chainInterval: this.options.chainInterval,
+      useRedis: options.useRedis || false,
+      redisClient: options.redisClient || null,
     });
 
-    logger.info(`✅ Added instrument: ${instrumentId} (polling active)`);
+    this.engines = new Map();
+    this.profiles = new Map();
+    this.pollingTimers = new Map();
+    this.isRunning = false;
+
+    // WebSocket throttling state
+    this._lastBroadcast = new Map();
+    this._lastBroadcastData = new Map();
   }
 
-  addStock(stockName) {
-    const stockId = `STOCK_${stockName}`;
-    if (this.engines.has(stockId)) return;
+  async initialize() {
+    await this.marketDataService.initialize();
+    logger.info('[MultiOrchestrator] Initialized');
+  }
 
-    const STOCK_OPTION_TEMPLATE = {
-      market:'NSE', indexExchange:'NSE', optionExchange:'NFO',
-      instrumenttype: 'OPTSTK',
-      lotSize: null,
-      strikeStep: null,
-      tickSize:0.05,
-      expiryType: 'monthly', expiryDayOfWeek: 2,
-      atrMultiplier:{target:0.6, sl:0.5},
-      minPremium:10, maxPremium:500,
-      optimalWindows:['10:00-11:30','14:00-15:00'],
-      gammaRiskExpiryHours:24,
-      ivPercentileMax:75,
-      maxSignalsDay:3, maxTradesDay:2, cooldownMs:300000
-    };
+  addInstrument(instrumentId, profile) {
+    if (this.engines.has(instrumentId)) {
+      logger.warn(`[MultiOrchestrator] Instrument ${instrumentId} already added`);
+      return;
+    }
 
-    const profile = { ...STOCK_OPTION_TEMPLATE, name: stockName };
+    const engine = new InstrumentEngine(instrumentId, profile, this.options);
 
-    this.marketData.loadInstrumentMaster(stockId, stockName, profile)
-      .then(() => {
-        const master = this.marketData.instruments.get(stockId);
-        if (master?.tokenMap) {
-          const first = Object.values(master.tokenMap)[0];
-          if (first) {
-            profile.lotSize = parseInt(first.lotsize) || 1;
-            profile.strikeStep = this._inferStrikeStep(master.tokenMap);
-          }
-        }
-        this.addInstrument(stockId, profile);
-      })
-      .catch(err => {
-        logger.error(`Failed to load stock ${stockName}: ${err.message}`);
-      });
+    // Inject audit framework
+    if (this.audit) {
+      engine.setSignalAudit(this.audit);
+    }
+
+    // Bind engine events
+    engine.on('signal', (data) => {
+      this.emit('signal', data);
+      this._throttledBroadcast(instrumentId, 'SIGNAL', data);
+    });
+    engine.on('tradeOpen', (data) => {
+      this.emit('tradeOpen', data);
+      this._throttledBroadcast(instrumentId, 'TRADE_OPEN', data);
+    });
+    engine.on('tradeClosed', (data) => {
+      this.emit('tradeClosed', data);
+      this._throttledBroadcast(instrumentId, 'TRADE_CLOSED', data);
+    });
+    engine.on('tradeUpdated', (data) => {
+      this.emit('tradeUpdated', data);
+    });
+    engine.on('trailingStopActivated', (data) => {
+      this.emit('trailingStopActivated', data);
+    });
+    engine.on('abort', (data) => {
+      this.emit('abort', data);
+    });
+    engine.on('error', (data) => {
+      logger.error(`[MultiOrchestrator] Engine error for ${data.instrumentId}: ${data.error?.message || data.error}`);
+      this.emit('engineError', data);
+    });
+
+    this.engines.set(instrumentId, engine);
+    this.profiles.set(instrumentId, profile);
+    logger.info(`[MultiOrchestrator] Added instrument: ${instrumentId}`);
   }
 
   removeInstrument(instrumentId) {
     const engine = this.engines.get(instrumentId);
     if (engine) {
-      this.marketData.stopPolling(instrumentId);
+      engine.stop();
+      this.marketDataService.stopPolling(instrumentId);
       this.engines.delete(instrumentId);
-      this.marketData.instruments.delete(instrumentId);
-      logger.info(`Removed instrument: ${instrumentId}`);
+      this.profiles.delete(instrumentId);
+      logger.info(`[MultiOrchestrator] Removed instrument: ${instrumentId}`);
     }
+  }
+
+  startInstrument(instrumentId) {
+    const engine = this.engines.get(instrumentId);
+    const profile = this.profiles.get(instrumentId);
+    if (!engine || !profile) {
+      logger.error(`[MultiOrchestrator] Cannot start unknown instrument: ${instrumentId}`);
+      return;
+    }
+
+    engine.start();
+
+    // Start polling with error isolation
+    this.marketDataService.startPolling(instrumentId, {
+      onLTP: (ltpData) => {
+        try {
+          engine.tick(ltpData.ltp, ltpData.timestamp);
+          this._throttledBroadcast(instrumentId, 'TICK', { instrumentId, ltp: ltpData.ltp, timestamp: ltpData.timestamp });
+        } catch (err) {
+          logger.error(`[MultiOrchestrator] LTP tick error for ${instrumentId}: ${err.message}`);
+        }
+      },
+      onChain: (chainData) => {
+        try {
+          const ltp = this.marketDataService.lastLTP.get(instrumentId);
+          if (ltp) {
+            engine.tick(ltp, Date.now(), chainData.chainData, chainData.premiums);
+          }
+        } catch (err) {
+          logger.error(`[MultiOrchestrator] Chain tick error for ${instrumentId}: ${err.message}`);
+        }
+      },
+      onError: (source, err) => {
+        logger.error(`[MultiOrchestrator] ${source} error for ${instrumentId}: ${err.message}`);
+        this.emit('dataError', { instrumentId, source, error: err });
+      },
+    }, profile);
+
+    logger.info(`[MultiOrchestrator] Started instrument: ${instrumentId}`);
+  }
+
+  stopInstrument(instrumentId) {
+    const engine = this.engines.get(instrumentId);
+    if (engine) {
+      engine.stop();
+      this.marketDataService.stopPolling(instrumentId);
+      logger.info(`[MultiOrchestrator] Stopped instrument: ${instrumentId}`);
+    }
+  }
+
+  startAll() {
+    this.isRunning = true;
+    for (const [instrumentId] of this.engines) {
+      this.startInstrument(instrumentId);
+    }
+    logger.info('[MultiOrchestrator] All instruments started');
+  }
+
+  stopAll() {
+    this.isRunning = false;
+    for (const [instrumentId] of this.engines) {
+      this.stopInstrument(instrumentId);
+    }
+    logger.info('[MultiOrchestrator] All instruments stopped');
   }
 
   getSnapshot(instrumentId) {
-    return this.engines.get(instrumentId)?.getSnapshot();
+    const engine = this.engines.get(instrumentId);
+    return engine ? engine.getSnapshot() : null;
   }
 
   getAllSnapshots() {
-    const result = {};
-    for (const [id, engine] of this.engines) {
-      result[id] = engine.getSnapshot();
+    const snapshots = {};
+    for (const [instrumentId, engine] of this.engines) {
+      snapshots[instrumentId] = engine.getSnapshot();
     }
-    return result;
+    return snapshots;
   }
 
-  broadcast(type, instrumentId, data) {
-    const engine = this.engines.get(instrumentId);
-    const msg = {
-      type,
-      instrument: instrumentId,
-      market: engine?.profile?.market || 'NSE',
-      data,
-      serverTime: Date.now()
-    };
-    if (this.externalBroadcast) {
-      try { this.externalBroadcast(msg); } catch (err) { logger.error('Broadcast error:', err.message); }
+  // ── WEBSOCKET THROTTLING ────────────────────────────────────
+  _throttledBroadcast(instrumentId, type, data) {
+    const now = Date.now();
+    const key = `${instrumentId}:${type}`;
+    const lastTime = this._lastBroadcast.get(key) || 0;
+    const lastData = this._lastBroadcastData.get(key);
+
+    // Always broadcast SIGNAL and TRADE events immediately
+    if (type === 'SIGNAL' || type === 'TRADE_OPEN' || type === 'TRADE_CLOSED') {
+      this._doBroadcast(instrumentId, type, data);
+      this._lastBroadcast.set(key, now);
+      this._lastBroadcastData.set(key, JSON.stringify(data));
+      return;
     }
+
+    // Throttle TICK broadcasts: only if > 5s since last OR value changed > 0.1%
+    if (now - lastTime < this.options.wsThrottleMs) {
+      // Check if value changed significantly
+      if (type === 'TICK' && lastData) {
+        const last = JSON.parse(lastData);
+        if (last.ltp && data.ltp) {
+          const change = Math.abs(data.ltp - last.ltp) / last.ltp;
+          if (change < 0.001) return; // < 0.1% change, skip
+        }
+      }
+      return;
+    }
+
+    this._doBroadcast(instrumentId, type, data);
+    this._lastBroadcast.set(key, now);
+    this._lastBroadcastData.set(key, JSON.stringify(data));
   }
 
-  _inferStrikeStep(tokenMap) {
-    const strikes = [...new Set(Object.values(tokenMap).map(i => parseFloat(i.strike)).filter(Number.isFinite))].sort((a, b) => a - b);
-    if (strikes.length < 2) return 5;
-    const diffs = [];
-    for (let i = 1; i < strikes.length; i++) {
-      const d = strikes[i] - strikes[i - 1];
-      if (d > 0) diffs.push(d);
-    }
-    diffs.sort((a, b) => a - b);
-    return diffs[0] || 5;
+  _doBroadcast(instrumentId, type, data) {
+    this.emit('broadcast', { instrumentId, type, data, timestamp: Date.now() });
+  }
+
+  async shutdown() {
+    this.stopAll();
+    await this.marketDataService.shutdown();
+    logger.info('[MultiOrchestrator] Shutdown complete');
   }
 }
 
-module.exports = new MultiOrchestrator();
-module.exports.MultiOrchestrator = MultiOrchestrator;
+module.exports = { MultiOrchestrator };

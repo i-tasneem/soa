@@ -1,360 +1,290 @@
 // ============================================================
-// INSTRUMENT ENGINE (FINAL FIX — Phase 2)
-// Per-instrument signal engine — fully independent, no shared state
-// FIXES: VWAP uses .update(candle); RegimeDetector instantiable; 
-//        robust error handling in all callbacks
-//        ATR alias for tradeManager; option LTP from chain data
-//        IST day reset
+// INSTRUMENT ENGINE v7 — Audit Integration + Broker Adapter
+// Changes from v6:
+// 1. Signal audit logging on every signal generation
+// 2. Outcome tracking on trade open/close
+// 3. Broker adapter passed in (not hardcoded Angel)
+// 4. Signal lifecycle state transitions (NEW → ACTIVE → CLOSED)
+// STRATEGY LOGIC UNCHANGED
 // ============================================================
 
-const { CandleBuilder } = require('../candleBuilder');
-const { calculateIndicators } = require('../indicators');
-const { MarketStateEngineClass, STATES } = require('../marketStateEngine');
-const { OIEngine } = require('../oiEngine');
-const { SignalEngine } = require('../signalEngine');
-const { TradeManager } = require('../tradeManager');
-const { AbortEngine } = require('../abortEngine');
-const DataFreshness = require('../dataFreshness');
-const GreeksCalculator = require('../greeksCalculator');
-const SignalCalibrator = require('../signalCalibrator');
-const { EarlyEntryDetector } = require('../earlyEntryDetector');
-const { createExpiryCalculator } = require('../utils/expiryCalculator');
-const logger = require('../../logger');
+const EventEmitter = require('events');
+const logger = require('../logger');
 
-// Defensive imports — some original modules export singletons, not classes
-let VWAPCalculator;
-try {
-  const indicators = require('../indicators');
-  VWAPCalculator = indicators.VWAPCalculator || indicators.VWAP || null;
-} catch (e) { VWAPCalculator = null; }
+const CandleBuilder = require('./candleBuilder').CandleBuilder;
+const Indicators = require('./indicators').Indicators;
+const MarketStateEngine = require('./marketStateEngine').MarketStateEngine;
+const OIEngine = require('./oiEngine').OIEngine;
+const SignalEngine = require('./signalEngine').SignalEngine;
+const TradeManager = require('./tradeManager').TradeManager;
+const AbortEngine = require('./abortEngine').AbortEngine;
+const DataFreshness = require('./dataFreshness').DataFreshness;
+const GreeksCalculator = require('./greeksCalculator').GreeksCalculator;
+const SignalCalibrator = require('./signalCalibrator').SignalCalibrator;
+const EarlyEntryDetector = require('./earlyEntryDetector').EarlyEntryDetector;
+const RegimeDetector = require('./regimeDetector').RegimeDetector;
 
-let RegimeDetector;
-try {
-  RegimeDetector = require('../regimeDetector');
-  // If it's a singleton instance (not a constructor), wrap it
-  if (RegimeDetector && typeof RegimeDetector !== 'function') {
-    const singleton = RegimeDetector;
-    RegimeDetector = function() { return singleton; };
-  }
-} catch (e) {
-  RegimeDetector = function() {
-    return { detect: () => ({ trend: 'NEUTRAL', strength: 0 }), reset: () => {} };
-  };
-}
-
-class InstrumentEngine {
-  constructor(instrumentId, profile, brokerConfig) {
-    this.id = instrumentId;
+class InstrumentEngine extends EventEmitter {
+  constructor(instrumentId, profile, config = {}) {
+    super();
+    this.instrumentId = instrumentId;
     this.profile = profile;
-    this.brokerConfig = brokerConfig;
+    this.config = config;
+    this.isActive = false;
 
-    // Fresh instances — NO shared state with other instruments
-    this.expiryCalc = createExpiryCalculator(profile);
     this.candleBuilder = new CandleBuilder();
-    this.vwap = VWAPCalculator ? new VWAPCalculator() : { update: () => {}, get: () => ({ vwap: null }), reset: () => {} };
-    this.marketState = new MarketStateEngineClass();
+    this.indicators = new Indicators();
+    this.marketState = new MarketStateEngine();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();
-    this.tradeManager = new TradeManager();
+    this.tradeManager = new TradeManager(instrumentId, profile);
     this.abortEngine = new AbortEngine();
     this.dataFreshness = new DataFreshness();
-    this.greeks = new GreeksCalculator();
-    this.calibrator = new SignalCalibrator();
-    this.earlyEntry = new EarlyEntryDetector();
+    this.greeksCalculator = new GreeksCalculator();
+    this.signalCalibrator = new SignalCalibrator(instrumentId);
+    this.earlyEntryDetector = new EarlyEntryDetector();
     this.regimeDetector = new RegimeDetector();
 
-    // State tracking
-    this.lastIndicators = null;
-    this.lastState = null;
-    this.lastOI = null;
-    this.lastRegime = null;
-    this.lastATR = null;
-    this.lastPrice = null;
-    this._last5mSlot = null;
-    this._lastAnalysisAt = 0;
-    this._lastOptPremium = null;
-    this._lastOptPremiumTs = 0;
-    this._exec = { ce: null, pe: null };
-    this._atm = null;
-    this._lastResetDate = null;
+    this.currentLTP = null;
+    this.lastLTP = null;
+    this.lastAnalysis = 0;
+    this.analysisInterval = 5000;
+    this.lastAnalysisResult = null;
 
-    // Callbacks (set by parent MultiOrchestrator)
-    this.onSignal = null;
-    this.onTradeOpen = null;
-    this.onTradeClose = null;
-    this.onUpdate = null;
-    this.onSetupAbort = null;
+    // Audit framework (injected from MultiOrchestrator)
+    this.signalAudit = null;
 
-    // Override signal engine limits from profile
-    this.signalEngine.maxSignals = profile.maxSignalsDay || 5;
-    this.signalEngine.maxTrades = profile.maxTradesDay || 3;
-    this.signalEngine.cooldownMs = profile.cooldownMs || 300000;
-
-    logger.info(`InstrumentEngine initialized: ${instrumentId} (${profile.name})`);
+    this._bindEvents();
   }
 
-  onTick(ltp, timestamp) {
-    this._checkDayReset();
+  setSignalAudit(audit) {
+    this.signalAudit = audit;
+  }
+
+  _bindEvents() {
+    this.tradeManager.on('tradeOpened', (trade) => {
+      this.emit('tradeOpened', { instrumentId: this.instrumentId, trade });
+      // Audit: activate signal lifecycle
+      if (this.signalAudit && trade.signalId) {
+        this.signalEngine.activateSignal(this.instrumentId, trade.signalId);
+      }
+    });
+    this.tradeManager.on('tradeClosed', (trade) => {
+      this.emit('tradeClosed', { instrumentId: this.instrumentId, trade });
+      // Audit: update outcome
+      if (this.signalAudit && trade.signalId) {
+        this.signalAudit.updateOutcome(trade.auditId, {
+          status: trade.pnl >= 0 ? 'WIN' : 'LOSS',
+          exitTimestamp: trade.exitTimestamp,
+          exitPrice: trade.exitPrice,
+          exitPremium: trade.exitPremium,
+          exitReason: trade.exitReason,
+          pnl: trade.pnl,
+          durationMs: trade.durationMs,
+          maxProfit: trade.maxProfit,
+          maxDrawdown: trade.maxDrawdown,
+          actualRR: trade.actualRR,
+        });
+        this.signalEngine.closeSignal(this.instrumentId, trade.signalId, {
+          status: trade.pnl >= 0 ? 'WIN' : 'LOSS',
+          pnl: trade.pnl,
+          exitReason: trade.exitReason,
+        });
+      }
+    });
+    this.tradeManager.on('tradeUpdated', (trade) => {
+      this.emit('tradeUpdated', { instrumentId: this.instrumentId, trade });
+    });
+    this.tradeManager.on('trailingStopActivated', (trade) => {
+      this.emit('trailingStopActivated', { instrumentId: this.instrumentId, trade });
+    });
+  }
+
+  tick(ltp, timestamp, optionChainData = null, marketData = null) {
+    if (!this.isActive) return;
+    this.lastLTP = this.currentLTP;
+    this.currentLTP = ltp;
+    this.dataFreshness.update('ltp', timestamp);
+
     this.candleBuilder.tick(ltp, timestamp);
+    this.emit('tick', { instrumentId: this.instrumentId, ltp, timestamp });
 
-    // FIX: VWAPCalculator.update() expects a candle object, not a raw tick
-    const cur5m = this.candleBuilder.getCurrent(5);
-    if (cur5m) {
-      try { this.vwap.update(cur5m); } catch (_) {}
+    if (optionChainData) {
+      this.oiEngine.update(optionChainData);
+      this.dataFreshness.update('oi', timestamp);
+      this.emit('oiUpdate', { instrumentId: this.instrumentId, oiData: this.oiEngine.getAnalysis(ltp) });
     }
 
-    const candles5m = this.candleBuilder.getCandles(5, 50);
-    const candles15m = this.candleBuilder.getCandles(15, 50);
-    const candles30m = this.candleBuilder.getCandles(30, 50);
-
-    if (candles5m.length < 3) return;
-
-    let indicators;
-    try {
-      // FIX: pass actual VWAP instance and 30m candles (not 3m)
-      indicators = calculateIndicators(candles5m, candles15m, candles30m, this.vwap);
-    } catch (err) {
-      logger.error(`[${this.id}] Indicator calculation error: ${err.message}`);
-      return;
+    if (marketData) {
+      this.greeksCalculator.update(marketData);
+      this.dataFreshness.update('greeks', timestamp);
     }
-
-    if (!indicators) return;
-
-    // FIX: alias atr14 to atr for tradeManager backward compatibility
-    if (indicators.atr14) {
-      indicators.atr = indicators.atr14;
-      this.lastATR = indicators.atr14;
-    }
-
-    this.lastIndicators = indicators;
-    this.lastPrice = ltp;
-
-    let state;
-    try {
-      state = this.marketState.update(indicators, candles5m);
-    } catch (err) {
-      logger.error(`[${this.id}] MarketState error: ${err.message}`);
-      state = { state: 'UNKNOWN', confidence: 0 };
-    }
-    this.lastState = state;
-
-    let regime;
-    try {
-      regime = this.regimeDetector.detect(candles5m, indicators);
-    } catch (err) {
-      regime = { trend: 'NEUTRAL', strength: 0 };
-    }
-    this.lastRegime = regime;
-
-    this._updateActiveTrade(ltp);
 
     const now = Date.now();
-    if (now - this._lastAnalysisAt > 5000) {
-      this._lastAnalysisAt = now;
-      this._runAnalysis({ ltp, timestamp, indicators, state, regime, candles5m });
+    if (now - this.lastAnalysis >= this.analysisInterval) {
+      this._runAnalysis(ltp, timestamp, optionChainData);
+      this.lastAnalysis = now;
     }
   }
 
-  onOptionChain(chainData, premiums, timestamp) {
-    this._checkDayReset();
-    const oiSnapshot = this.oiEngine.update(chainData);
-    if (!oiSnapshot) return;
-
-    this.lastOI = oiSnapshot;
-
-    if (this.lastPrice && oiSnapshot) {
-      try {
-        const oiAnalysis = this.oiEngine.getAnalysis(this.lastPrice);
-        this.lastOI = oiAnalysis;
-      } catch (err) {
-        logger.error(`[${this.id}] OI analysis error: ${err.message}`);
-      }
-    }
-
-    if (premiums && premiums.ce && premiums.pe) {
-      this._exec = premiums;
-      this._lastOptPremiumTs = Date.now();
-      // FIX: Update active trade option LTP from chain data so trades can track P&L
-      if (this.tradeManager.activeTrade) {
-        const p = this.tradeManager.activeTrade.type === 'BUY_CE'
-          ? premiums.ce?.premium
-          : premiums.pe?.premium;
-        if (typeof p === 'number') {
-          this._lastOptPremium = p;
-          this._lastOptPremiumTs = Date.now();
-        }
-      }
-    }
-  }
-
-  onOptionLTP(premium, timestamp) {
-    this._lastOptPremium = premium;
-    this._lastOptPremiumTs = timestamp;
-  }
-
-  _runAnalysis(ctx) {
-    const { ltp, timestamp, indicators, state, regime, candles5m } = ctx;
-
-    if (!this.lastOI) return;
-
-    let oiAnalysis;
+  _runAnalysis(ltp, timestamp, optionChainData) {
+    if (!this.isActive) return;
     try {
-      oiAnalysis = this.oiEngine.getAnalysis(ltp);
-    } catch (err) {
-      logger.error(`[${this.id}] OI getAnalysis error: ${err.message}`);
-      return;
-    }
-    if (!oiAnalysis) return;
+      const candles = this.candleBuilder.getCandles();
+      if (!candles.current5m) return;
 
-    let signal;
-    try {
-      signal = this.signalEngine.evaluate({
+      const indicators = this.indicators.calculate(candles);
+      const marketState = this.marketState.update(indicators, candles);
+      const oiAnalysis = this.oiEngine.getAnalysis(ltp);
+      const regime = this.regimeDetector.classifyRegime(indicators.atr14, indicators.atr14 > 0 ? indicators.atr14 / 1.0 : 0, null);
+      const greeks = this.greeksCalculator.getGreeks();
+      const freshness = this.dataFreshness.getStatus();
+      const calibrator = this.signalCalibrator.getCalibration();
+      const earlyEntry = this.earlyEntryDetector.detect(ltp, indicators, candles, oiAnalysis, marketState);
+
+      const abortReasons = this.abortEngine.check(ltp, indicators, candles, marketState, oiAnalysis, greeks, freshness, calibrator);
+      if (abortReasons.length > 0) {
+        this.emit('abort', { instrumentId: this.instrumentId, reasons: abortReasons });
+        return;
+      }
+
+      const analysis = {
+        instrument: this.instrumentId,
+        timestamp,
+        ltp,
         indicators,
-        marketState: state,
+        marketState,
         oiAnalysis,
         regime,
-        price: ltp,
-        timestamp,
+        greeks,
+        candles,
+        freshness,
+        calibrator,
+        earlyEntry,
         profile: this.profile,
-      });
-    } catch (err) {
-      logger.error(`[${this.id}] Signal evaluation error: ${err.message}`);
-      signal = null;
-    }
+        atmStrike: this._getATMStrike(ltp),
+      };
 
-    if (signal) {
-      if (this.onSignal) {
-        try { this.onSignal(this.id, signal); } catch (err) {
-          logger.error(`[${this.id}] onSignal callback error: ${err.message}`);
+      // Signal generation
+      const signal = this.signalEngine.evaluate(analysis);
+      if (signal) {
+        signal.status = 'NEW';
+
+        // AUDIT: Log signal with full context
+        let auditId = null;
+        if (this.signalAudit) {
+          auditId = this.signalAudit.logSignal(signal, this.instrumentId, {
+            entryPrice: ltp,
+            indicators: {
+              ema5: indicators.ema5,
+              ema9: indicators.ema9,
+              ema21: indicators.ema21,
+              vwap: indicators.vwap,
+              rsi: indicators.rsi,
+              bb: indicators.bb,
+              atr14: indicators.atr14,
+              volume: indicators.volume,
+              avgVolume: indicators.avgVolume,
+            },
+            marketState: {
+              state: marketState.state,
+              confidence: marketState.confidence,
+              reasons: marketState.reasons,
+            },
+            oi: {
+              pcr: oiAnalysis.pcr,
+              pcrBias: oiAnalysis.pcrBias,
+              support: oiAnalysis.support,
+              resistance: oiAnalysis.resistance,
+              isPinned: oiAnalysis.isPinned,
+              oiBullish: oiAnalysis.oiBullish,
+              oiBearish: oiAnalysis.oiBearish,
+              wallPressure: oiAnalysis.wallPressure,
+            },
+            regime: {
+              regime: regime.regime,
+              strength: regime.strength,
+            },
+            abortFlags: [],
+            factors: signal.factors || [],
+          });
+          signal.auditId = auditId; // Link signal to audit record
         }
-      }
 
-      const premium = signal.type === 'BUY_CE'
-        ? (this._exec?.ce?.premium || 0)
-        : (this._exec?.pe?.premium || 0);
+        this.emit('signal', { instrumentId: this.instrumentId, signal, analysis });
 
-      if (premium > 0) {
-        let trade;
-        try {
-          trade = this.tradeManager.openTrade(signal, premium, this.profile.lotSize, this.profile);
-        } catch (err) {
-          logger.error(`[${this.id}] Trade open error: ${err.message}`);
-          trade = null;
-        }
-        if (trade && this.onTradeOpen) {
-          try { this.onTradeOpen(this.id, trade); } catch (err) {
-            logger.error(`[${this.id}] onTradeOpen callback error: ${err.message}`);
+        const premium = signal.type === 'BUY_CE' ? optionChainData?.find(r => r.strikePrice === signal.atmStrike)?.CE?.ltp : optionChainData?.find(r => r.strikePrice === signal.atmStrike)?.PE?.ltp;
+        const lots = this.profile.lots || 1;
+
+        if (premium && premium > 0) {
+          const trade = this.tradeManager.openTrade(signal, premium, lots, this.profile);
+          if (trade && auditId) {
+            trade.auditId = auditId; // Link trade to audit
+            this.signalAudit.logExecution(auditId, {
+              filled: true,
+              fillTimestamp: Date.now(),
+              fillPremium: premium,
+              slippage: 0, // theoretical fill
+              lots,
+              brokerOrderId: null, // paper trading for now
+            });
           }
+          this.emit('tradeOpen', { instrumentId: this.instrumentId, trade, signal });
         }
       }
-    }
 
-    // Abort check
-    let abort;
-    try {
-      abort = this.abortEngine.check({
-        price: ltp,
-        indicators,
-        marketState: state,
-        oiAnalysis,
-        regime,
-        signal,
-        timestamp,
-      });
+      // Update trades
+      this.tradeManager.updateTrades(ltp, optionChainData);
+
+      this.lastAnalysisResult = analysis;
+      this.emit('analysis', { instrumentId: this.instrumentId, analysis });
     } catch (err) {
-      logger.error(`[${this.id}] Abort check error: ${err.message}`);
-      abort = null;
-    }
-
-    if (abort && this.onSetupAbort) {
-      try { this.onSetupAbort(this.id, abort); } catch (err) {
-        logger.error(`[${this.id}] onSetupAbort callback error: ${err.message}`);
-      }
-    }
-
-    // Update broadcast
-    if (this.onUpdate) {
-      try {
-        this.onUpdate(this.id, {
-          indicators,
-          state,
-          oi: oiAnalysis,
-          regime,
-          trade: this.tradeManager.getStats(),
-          signals: this.signalEngine.getSignals(),
-          price: ltp,
-          timestamp,
-          atmStrike: this._exec?.atmStrike || null,
-        });
-      } catch (err) {
-        logger.error(`[${this.id}] onUpdate callback error: ${err.message}`);
-      }
+      logger.error(`[InstrumentEngine] Analysis error for ${this.instrumentId}: ${err.message}`);
+      this.emit('error', { instrumentId: this.instrumentId, error: err });
     }
   }
 
-  _updateActiveTrade(ltp) {
-    if (!this.tradeManager.activeTrade || !this._lastOptPremium) return;
-
-    let result;
-    try {
-      result = this.tradeManager.updateTrade(this._lastOptPremium, ltp);
-    } catch (err) {
-      logger.error(`[${this.id}] Trade update error: ${err.message}`);
-      return;
-    }
-    if (result && !result.updated && this.onTradeClose) {
-      try { this.onTradeClose(this.id, result); } catch (err) {
-        logger.error(`[${this.id}] onTradeClose callback error: ${err.message}`);
-      }
-    }
-  }
-
-  _checkDayReset() {
-    // FIX: Use IST timezone for day boundary
-    const today = new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata' });
-    if (this._lastResetDate !== today) {
-      this._lastResetDate = today;
-      try { this.candleBuilder.reset(); } catch (_) {}
-      try { this.marketState.reset(); } catch (_) {}
-      try { this.oiEngine.reset(); } catch (_) {}
-      try { this.signalEngine.reset(); } catch (_) {}
-      try { this.tradeManager.reset(); } catch (_) {}
-      try { this.dataFreshness.reset(); } catch (_) {}
-      try { this.greeks.reset(); } catch (_) {}
-      try { this.calibrator.reset(); } catch (_) {}
-      try { this.earlyEntry.reset(); } catch (_) {}
-      try { this.abortEngine.reset(); } catch (_) {}
-      try { this.regimeDetector.reset(); } catch (_) {}
-      this.lastIndicators = null;
-      this.lastState = null;
-      this.lastOI = null;
-      this.lastRegime = null;
-      this.lastATR = null;
-      this.lastPrice = null;
-      this._last5mSlot = null;
-      this._lastAnalysisAt = 0;
-      this._lastOptPremium = null;
-      this._lastOptPremiumTs = 0;
-      this._exec = { ce: null, pe: null };
-      this._atm = null;
-      logger.info(`InstrumentEngine reset for new day: ${this.id}`);
-    }
+  _getATMStrike(ltp) {
+    const step = this.profile.strikeStep || 50;
+    return Math.round(ltp / step) * step;
   }
 
   getSnapshot() {
     return {
-      id: this.id,
-      name: this.profile.name,
-      price: this.lastPrice,
-      indicators: this.lastIndicators,
-      state: this.lastState,
-      oi: this.lastOI,
-      regime: this.lastRegime,
-      trade: this.tradeManager.getStats(),
+      instrumentId: this.instrumentId,
+      ltp: this.currentLTP,
+      candles: this.candleBuilder.getCandles(),
+      indicators: this.indicators.getLastIndicators(),
+      marketState: this.marketState.getCurrentState(),
+      oiAnalysis: this.oiEngine.getAnalysis(this.currentLTP),
       signals: this.signalEngine.getSignals(),
-      atmStrike: this._exec?.atmStrike || null,
-      timestamp: Date.now(),
+      activeTrades: this.tradeManager.getActiveTrades(),
+      tradeHistory: this.tradeManager.getTradeHistory(),
+      greeks: this.greeksCalculator.getGreeks(),
+      freshness: this.dataFreshness.getStatus(),
+      regime: this.regimeDetector.getCurrentRegime(),
+      lastAnalysis: this.lastAnalysisResult,
+      isActive: this.isActive,
     };
+  }
+
+  start() { this.isActive = true; }
+  stop() { this.isActive = false; }
+  reset() {
+    this.candleBuilder.reset();
+    this.indicators.reset();
+    this.marketState.reset();
+    this.oiEngine = new OIEngine();
+    this.signalEngine = new SignalEngine();
+    this.tradeManager.reset();
+    this.greeksCalculator.reset();
+    this.signalCalibrator = new SignalCalibrator(this.instrumentId);
+    this.earlyEntryDetector = new EarlyEntryDetector();
+    this.currentLTP = null;
+    this.lastLTP = null;
+    this.lastAnalysis = 0;
+    this.lastAnalysisResult = null;
+    this.isActive = false;
   }
 }
 

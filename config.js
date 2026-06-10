@@ -1,54 +1,117 @@
 // ============================================================
-// CONFIGURATION
-// Environment-driven configuration for SOA Trader
-// FIX: Added maxDailyLoss, CORS whitelist
+// CONFIG v7 — Broker-Agnostic Configuration
+// Changes from v6:
+// 1. Added broker section (type, credentials per broker)
+// 2. Added Redis configuration section
+// 3. Added polling configuration section
+// 4. Instrument profiles include Dhan security IDs
 // ============================================================
 
 require('dotenv').config();
 
 const config = {
-  angel: {
+  // ── BROKER CONFIGURATION ───────────────────────────────────
+  broker: {
+    // Supported: 'angel', 'dhan'
+    type: process.env.BROKER_TYPE || 'angel',
+
+    // Angel One credentials (used when type = 'angel')
     apiKey: process.env.ANGEL_API_KEY || '',
     clientId: process.env.ANGEL_CLIENT_ID || '',
     password: process.env.ANGEL_PASSWORD || '',
     totpSecret: process.env.ANGEL_TOTP_SECRET || '',
-    baseUrl: 'https://apiconnect.angelone.in',
+    baseUrl: process.env.ANGEL_BASE_URL || 'https://apiconnect.angelone.in',
+
+    // Dhan credentials (used when type = 'dhan')
+    accessToken: process.env.DHAN_ACCESS_TOKEN || '',
+    clientId: process.env.DHAN_CLIENT_ID || '',
+    baseUrl: process.env.DHAN_BASE_URL || 'https://api.dhan.co',
   },
-  server: {
-    port: process.env.PORT || 3000,
-    host: process.env.HOST || '0.0.0.0',
+
+  // ── REDIS CONFIGURATION ────────────────────────────────────
+  redis: {
+    enabled: process.env.REDIS_ENABLED === 'true',
+    url: process.env.REDIS_URL || 'redis://localhost:6379',
+    password: process.env.REDIS_PASSWORD || '',
   },
-  trading: {
-    defaultLots: parseInt(process.env.DEFAULT_LOTS) || 15,
-    defaultTarget: parseInt(process.env.DEFAULT_TARGET) || 25,
-    defaultStopLoss: parseInt(process.env.DEFAULT_SL) || 20,
-    defaultMonthlyGoal: parseInt(process.env.MONTHLY_GOAL) || 35000,
-    maxSignalsDay: parseInt(process.env.MAX_SIGNALS_DAY) || 5,
-    maxTradesDay: parseInt(process.env.MAX_TRADES_DAY) || 3,
-    cooldownMs: parseInt(process.env.COOLDOWN_MS) || 300000,
-    maxDailyLoss: parseInt(process.env.MAX_DAILY_LOSS) || 10000,
+
+  // ── POLLING CONFIGURATION ──────────────────────────────────
+  polling: {
+    ltpInterval: parseInt(process.env.LTP_INTERVAL) || 2000,
+    chainInterval: parseInt(process.env.CHAIN_INTERVAL) || 5000,
+    wsThrottleMs: parseInt(process.env.WS_THROTTLE_MS) || 5000,
   },
-  market: {
-    openTime: '09:15',
-    closeTime: '15:30',
-    timezone: 'Asia/Kolkata',
+
+  // ── INSTRUMENT PROFILES ────────────────────────────────────
+  instruments: {
+    NIFTY: {
+      name: 'NIFTY 50',
+      exchange: 'NSE',
+      token: '26000',
+      dhanSecurityId: '13', // NIFTY index on Dhan
+      instrumenttype: 'OPTIDX',
+      optionExchange: 'NFO',
+      strikeStep: 50,
+      lots: 15,
+      optimalWindows: [
+        { start: '09:30', end: '11:30' },
+        { start: '13:30', end: '15:00' },
+      ],
+    },
+    BANKNIFTY: {
+      name: 'NIFTY BANK',
+      exchange: 'NSE',
+      token: '26009',
+      dhanSecurityId: '25', // BANKNIFTY index on Dhan
+      instrumenttype: 'OPTIDX',
+      optionExchange: 'NFO',
+      strikeStep: 100,
+      lots: 15,
+      optimalWindows: [
+        { start: '09:30', end: '11:30' },
+        { start: '13:30', end: '15:00' },
+      ],
+    },
+    SENSEX: {
+      name: 'SENSEX',
+      exchange: 'BSE',
+      token: '1',
+      dhanSecurityId: '51', // SENSEX index on Dhan
+      instrumenttype: 'OPTIDX',
+      optionExchange: 'BFO',
+      strikeStep: 100,
+      lots: 10,
+      optimalWindows: [
+        { start: '09:30', end: '11:30' },
+        { start: '13:30', end: '15:00' },
+      ],
+    },
+    BANKEX: {
+      name: 'BANKEX',
+      exchange: 'BSE',
+      token: '12',
+      dhanSecurityId: '69', // BANKEX index on Dhan
+      instrumenttype: 'OPTIDX',
+      optionExchange: 'BFO',
+      strikeStep: 100,
+      lots: 10,
+      optimalWindows: [
+        { start: '09:30', end: '11:30' },
+        { start: '13:30', end: '15:00' },
+      ],
+    },
   },
-  oi: {
-    rollingWindow: parseInt(process.env.OI_ROLLING_WINDOW) || 5,
-    minOiPct: parseFloat(process.env.OI_MIN_PCT) || 0.05,
-    imbalanceBullishThreshold: parseFloat(process.env.OI_BULLISH_THRESHOLD) || 0.08,
-    imbalanceBearishThreshold: parseFloat(process.env.OI_BEARISH_THRESHOLD) || -0.08,
+
+  // ── DATABASE ───────────────────────────────────────────────
+  database: {
+    path: process.env.DB_PATH || './data/trading.db',
   },
-  calibration: {
-    enabled: process.env.CALIBRATION_ENABLED === 'true',
-    minSamples: parseInt(process.env.CALIBRATION_MIN_SAMPLES) || 50,
-  },
-  // FIX: CORS whitelist
-  corsWhitelist: (process.env.CORS_WHITELIST || 'http://localhost:3000').split(',').map(s => s.trim()).filter(Boolean),
-  // NEW: Multi-instrument configuration
-  activeInstruments: (process.env.INSTRUMENTS || 'SENSEX,NIFTY,BANKNIFTY,FINNIFTY,BANKEX').split(',').map(s => s.trim().toUpperCase()),
-  stockWatchlist: (process.env.STOCK_WATCHLIST || 'RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK').split(',').map(s => s.trim().toUpperCase()),
-  enableStockOptions: process.env.ENABLE_STOCKS === 'true',
+
+  // ── LOGGING ────────────────────────────────────────────────
+  logLevel: process.env.LOG_LEVEL || 'info',
+
+  // ── SERVER ─────────────────────────────────────────────────
+  port: parseInt(process.env.PORT) || 3000,
 };
 
 module.exports = config;

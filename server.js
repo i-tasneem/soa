@@ -1,344 +1,302 @@
 // ============================================================
-// SOA TRADER SERVER — Multi-Instrument Architecture
-// Node.js 20, Express 4, WebSocket (ws)
-// FIX: CORS whitelist, IST day reset propagation, async instrument init
+// SERVER v7 — Broker-Agnostic + Audit Framework
+// Changes from v6:
+// 1. Uses broker factory (createBrokerAdapter) instead of hardcoded Angel
+// 2. Injects SignalAudit into MultiOrchestrator
+// 3. Adds audit reporting API endpoints
+// 4. Graceful shutdown with broker cleanup
+// 5. Redis integration (optional)
 // ============================================================
 
 const express = require('express');
 const WebSocket = require('ws');
 const http = require('http');
 const path = require('path');
-const cors = require('cors');
-const axios = require('axios');
-const otplib = require('otplib');
-
-const config = require('./config');
+const fs = require('fs');
+const { createBrokerAdapter } = require('./broker');
+const { SignalAudit } = require('./audit/signalAudit');
+const { MultiOrchestrator } = require('./strategy/core/multiOrchestrator');
 const logger = require('./logger');
-const db = require('./database');
+const database = require('./database');
+const config = require('./config');
 const health = require('./health');
-
-// Multi-instrument imports — wrapped for visibility
-let multiOrchestrator, profiles, StockScanner;
-try {
-  multiOrchestrator = require('./strategy/core/multiOrchestrator');
-  profiles = require('./strategy/dna/instrumentProfiles');
-  const stockScannerModule = require('./strategy/stockScanner');
-  StockScanner = stockScannerModule.StockScanner;
-  logger.info('✅ All strategy modules loaded successfully');
-} catch (err) {
-  logger.error(`❌ FATAL: Failed to load strategy modules: ${err.message}`);
-  logger.error(err.stack);
-  setTimeout(() => process.exit(1), 5000);
-  throw err;
-}
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// FIX: CORS whitelist instead of open cors
-const corsWhitelist = config.corsWhitelist || ['http://localhost:3000'];
-app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin || corsWhitelist.includes(origin)) return callback(null, true);
-    logger.warn(`CORS blocked origin: ${origin}`);
-    return callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-}));
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+let orchestrator = null;
+let signalAudit = null;
+let redisClient = null;
 
-let authToken = null;
-let refreshToken = null;
-let feedToken = null;
-let jwtToken = null;
-let userProfile = null;
-let scanner = null;
-
-// ── UNHANDLED ERRORS ───────────────────────────────────────
-process.on('uncaughtException', (err) => {
-  logger.error(`Uncaught Exception: ${err.message}\n${err.stack}`);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error(`Unhandled Rejection at: ${promise}, reason: ${reason}`);
-});
-
-// ── AUTHENTICATION ─────────────────────────────────────────
-async function authenticate() {
-  logger.info('Starting Angel One authentication...');
+// ── REDIS SETUP (Optional) ──────────────────────────────────
+async function setupRedis() {
+  if (!config.redis || !config.redis.enabled) {
+    logger.info('[Server] Redis disabled');
+    return null;
+  }
   try {
-    const totp = otplib.authenticator.generate(config.angel.totpSecret);
-    logger.info(`TOTP generated: ${totp}`);
-
-    const loginUrl = `${config.angel.baseUrl}/rest/auth/angelbroking/user/v1/loginByPassword`;
-    logger.info(`Login URL: ${loginUrl}`);
-    logger.info(`Client code: ${config.angel.clientId}`);
-    logger.info(`API Key present: ${!!config.angel.apiKey}`);
-
-    const resp = await axios.post(loginUrl, {
-      clientcode: config.angel.clientId,
-      password: config.angel.password,
-      totp: totp,
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-UserType': 'USER',
-        'X-SourceID': 'WEB',
-        'X-ClientLocalIP': 'CLIENT_LOCAL_IP',
-        'X-ClientPublicIP': 'CLIENT_PUBLIC_IP',
-        'X-MACAddress': 'MAC_ADDRESS',
-        'X-PrivateKey': config.angel.apiKey,
+    const redis = require('redis');
+    const client = redis.createClient({
+      url: config.redis.url || 'redis://localhost:6379',
+      socket: {
+        reconnectStrategy: (retries) => Math.min(retries * 50, 500),
       },
-      timeout: 30000,
+    });
+    client.on('error', (err) => logger.error(`[Redis] ${err.message}`));
+    await client.connect();
+    logger.info('[Server] Redis connected');
+    return client;
+  } catch (err) {
+    logger.warn(`[Server] Redis connection failed: ${err.message}`);
+    return null;
+  }
+}
+
+// ── INITIALIZATION ───────────────────────────────────────────
+async function initialize() {
+  try {
+    logger.info('[Server] Starting SOA Trader v7...');
+
+    // Setup Redis
+    redisClient = await setupRedis();
+
+    // Create broker adapter from config
+    const brokerType = config.broker?.type || 'angel';
+    const brokerConfig = {
+      baseUrl: config.broker?.baseUrl,
+      apiKey: config.broker?.apiKey,
+      clientId: config.broker?.clientId,
+      password: config.broker?.password,
+      totpSecret: config.broker?.totpSecret,
+      accessToken: config.broker?.accessToken,
+      ...config.broker,
+    };
+
+    const brokerAdapter = createBrokerAdapter(brokerType, brokerConfig);
+    logger.info(`[Server] Broker adapter created: ${brokerType}`);
+
+    // Initialize audit framework
+    signalAudit = new SignalAudit(database.db);
+
+    // Create orchestrator with broker and audit
+    orchestrator = new MultiOrchestrator(brokerAdapter, signalAudit, {
+      ltpInterval: config.polling?.ltpInterval || 2000,
+      chainInterval: config.polling?.chainInterval || 5000,
+      wsThrottleMs: config.polling?.wsThrottleMs || 5000,
+      useRedis: !!redisClient,
+      redisClient,
     });
 
-    logger.info(`Login response: ${JSON.stringify(resp.data)}`);
+    await orchestrator.initialize();
 
-    const isSuccess = resp.data?.success === true || resp.data?.status === true;
-
-    if (isSuccess && resp.data?.data) {
-      authToken = resp.data.data.jwtToken;
-      refreshToken = resp.data.data.refreshToken;
-      feedToken = resp.data.data.feedToken;
-      jwtToken = authToken;
-      userProfile = resp.data.data;
-
-      if (multiOrchestrator.marketData) {
-        multiOrchestrator.marketData.brokerConfig.jwtToken = authToken;
-        multiOrchestrator.marketData.brokerConfig.baseUrl = config.angel.baseUrl;
-        multiOrchestrator.marketData.brokerConfig.apiKey = config.angel.apiKey;
-        multiOrchestrator.marketData.brokerConfig.refreshToken = resp.data.data.refreshToken;
-      }
-
-      multiOrchestrator.setAuthToken(authToken, resp.data.data.refreshToken);
-
-      logger.info('✅ Angel One authenticated successfully');
-      broadcastToAllClients({ type: 'AUTH_STATUS', status: 'connected', message: 'Angel One Live' });
-
-      // ✅ FIX: await async initializeInstruments
-      await initializeInstruments();
-    } else {
-      const msg = resp.data?.message || resp.data?.errorCode || 'Authentication failed';
-      logger.error(`❌ Login rejected: ${msg}`);
-      throw new Error(msg);
+    // Add instruments from config
+    for (const [instrumentId, profile] of Object.entries(config.instruments || {})) {
+      orchestrator.addInstrument(instrumentId, profile);
     }
+
+    // Bind orchestrator events to WebSocket
+    orchestrator.on('broadcast', (data) => {
+      broadcastToClients(data.type, data);
+    });
+    orchestrator.on('signal', (data) => {
+      broadcastToClients('SIGNAL', data);
+    });
+    orchestrator.on('tradeOpen', (data) => {
+      broadcastToClients('TRADE_OPEN', data);
+    });
+    orchestrator.on('tradeClosed', (data) => {
+      broadcastToClients('TRADE_CLOSED', data);
+    });
+    orchestrator.on('engineError', (data) => {
+      broadcastToClients('ERROR', data);
+    });
+
+    logger.info('[Server] Initialization complete');
+    return true;
   } catch (err) {
-    if (err.response) {
-      logger.error(`❌ Authentication HTTP ${err.response.status}: ${JSON.stringify(err.response.data)}`);
-    } else {
-      logger.error(`❌ Authentication error: ${err.message}`);
-    }
-    broadcastToAllClients({ type: 'AUTH_STATUS', status: 'error', message: err.message });
-    setTimeout(authenticate, 60000);
+    logger.error(`[Server] Initialization failed: ${err.message}`);
+    throw err;
   }
 }
 
-// ✅ FIX: Now async — awaits each addInstrument before moving to next
-async function initializeInstruments() {
-  logger.info(`Initializing instruments: ${config.activeInstruments.join(', ')}`);
+// ── WEBSOCKET ───────────────────────────────────────────────
+const clients = new Set();
 
-  for (const instId of config.activeInstruments) {
-    const profile = profiles[instId];
-    if (profile) {
-      try {
-        await multiOrchestrator.addInstrument(instId, profile); // ✅ await async
-        logger.info(`✅ Added instrument: ${instId}`);
-      } catch (err) {
-        logger.error(`❌ Failed to add instrument ${instId}: ${err.message}`);
-      }
-    } else {
-      logger.warn(`⚠️ No profile found for instrument: ${instId}`);
-    }
-  }
-
-  if (config.enableStockOptions) {
-    try {
-      scanner = new StockScanner(multiOrchestrator.marketData, multiOrchestrator);
-      scanner.start();
-      logger.info('Stock scanner started');
-    } catch (err) {
-      logger.error(`Failed to start stock scanner: ${err.message}`);
-    }
-  }
-}
-
-// ── WEBSOCKET BROADCAST ────────────────────────────────────
-function broadcastToAllClients(msg) {
-  const data = JSON.stringify(msg);
-  let sent = 0;
-  wss.clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      try { ws.send(data); sent++; } catch (_) {}
-    }
-  });
-  return sent;
-}
-
-multiOrchestrator.externalBroadcast = (msg) => {
-  broadcastToAllClients(msg);
-};
-
-// ── WEBSOCKET CONNECTION HANDLER ───────────────────────────
 wss.on('connection', (ws) => {
-  logger.info('Client connected');
+  clients.add(ws);
+  logger.info(`[WS] Client connected. Total: ${clients.size}`);
 
-  try {
-    ws.send(JSON.stringify({
-      type: 'INIT_STATE',
-      data: {
-        authStatus: authToken ? 'connected' : 'disconnected',
-        instruments: multiOrchestrator.getAllSnapshots(),
-        config: { trading: config.trading, market: config.market },
-      },
-    }));
-  } catch (err) {
-    logger.error(`WS init send error: ${err.message}`);
+  // Send current snapshots
+  if (orchestrator) {
+    const snapshots = orchestrator.getAllSnapshots();
+    ws.send(JSON.stringify({ type: 'INIT', data: snapshots, timestamp: Date.now() }));
   }
-
-  ws.on('message', (raw) => {
-    try {
-      const msg = JSON.parse(raw);
-      if (msg.type === 'GET_INIT_STATE') {
-        try {
-          ws.send(JSON.stringify({
-            type: 'INIT_STATE',
-            data: {
-              authStatus: authToken ? 'connected' : 'disconnected',
-              instruments: multiOrchestrator.getAllSnapshots(),
-              config: { trading: config.trading, market: config.market },
-            },
-          }));
-        } catch (err) {
-          logger.error(`WS GET_INIT_STATE send error: ${err.message}`);
-        }
-      }
-    } catch (err) {
-      logger.warn('WS message parse error');
-    }
-  });
 
   ws.on('close', () => {
-    logger.info('Client disconnected');
+    clients.delete(ws);
+    logger.info(`[WS] Client disconnected. Total: ${clients.size}`);
   });
 
   ws.on('error', (err) => {
-    logger.error(`WS client error: ${err.message}`);
+    logger.error(`[WS] Client error: ${err.message}`);
   });
 });
 
-// ── REST API ───────────────────────────────────────────────
-app.get('/api/health', (req, res) => {
-  try {
-    res.json(health.getStatus());
-  } catch (err) {
-    res.status(500).json({ status: 'error', message: err.message });
-  }
-});
-
-app.get('/api/status', (req, res) => {
-  res.json({
-    connected: !!authToken,
-    instruments: multiOrchestrator.getAllSnapshots(),
-    authStatus: authToken ? 'connected' : 'disconnected',
-    timestamp: Date.now(),
-  });
-});
-
-app.get('/api/instruments/:id/snapshot', (req, res) => {
-  const snapshot = multiOrchestrator.getSnapshot(req.params.id);
-  if (!snapshot) {
-    return res.status(404).json({ error: 'Instrument not found' });
-  }
-  res.json(snapshot);
-});
-
-app.get('/api/sensex', (req, res) => {
-  const snapshot = multiOrchestrator.getSnapshot('SENSEX');
-  if (!snapshot) {
-    return res.status(404).json({ error: 'SENSEX not active' });
-  }
-  res.json({
-    ...snapshot,
-    lastSensex: snapshot.price,
-    liveData: { sensex: snapshot.price, atmStrike: snapshot.atmStrike },
-  });
-});
-
-app.get('/api/config', (req, res) => {
-  res.json({
-    trading: config.trading,
-    market: config.market,
-    activeInstruments: config.activeInstruments,
-    enableStockOptions: config.enableStockOptions,
-  });
-});
-
-app.post('/api/auth/refresh', async (req, res) => {
-  try {
-    const resp = await axios.post(`${config.angel.baseUrl}/rest/auth/angelbroking/user/v1/generateToken`, {
-      refreshToken: refreshToken,
-    }, {
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'X-PrivateKey': config.angel.apiKey,
-      },
-    });
-
-    const isSuccess = resp.data?.success === true || resp.data?.status === true;
-    if (isSuccess && resp.data?.data) {
-      authToken = resp.data.data.jwtToken;
-      refreshToken = resp.data.data.refreshToken;
-      feedToken = resp.data.data.feedToken;
-      multiOrchestrator.setAuthToken(authToken);
-      res.json({ status: 'success', message: 'Token refreshed' });
-    } else {
-      throw new Error(resp.data?.message || 'Refresh failed');
+function broadcastToClients(type, data) {
+  const message = JSON.stringify({ type, data, timestamp: Date.now() });
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
     }
-  } catch (err) {
-    res.status(500).json({ status: 'error', message: err.message });
-  }
-});
-
-// ── START SERVER ───────────────────────────────────────────
-const PORT = config.server.port;
-const HOST = config.server.host;
-
-server.listen(PORT, HOST, () => {
-  logger.info(`🚀 SOA Trader server running on http://${HOST}:${PORT}`);
-  logger.info(`📊 Active instruments: ${config.activeInstruments.join(', ')}`);
-  logger.info(`📈 Stock options enabled: ${config.enableStockOptions}`);
-
-  setTimeout(() => {
-    authenticate();
-  }, 1000);
-});
-
-server.on('error', (err) => {
-  logger.error(`Server error: ${err.message}`);
-  process.exit(1);
-});
-
-function gracefulShutdown(signal) {
-  logger.info(`${signal} received, shutting down gracefully`);
-  // FIX: flush DB queue before exit
-  try { db._flushQueue(); } catch (_) {}
-  server.close(() => {
-    logger.info('HTTP server closed');
-    try {
-      if (db && typeof db.close === 'function') {
-        db.close();
-        logger.info('Database closed');
-      }
-    } catch (err) {
-      logger.error(`DB close error: ${err.message}`);
-    }
-    process.exit(0);
   });
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+// ── EXPRESS ROUTES ──────────────────────────────────────────
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json(health.getStatus());
+});
+
+// Instrument snapshots
+app.get('/api/snapshot/:instrumentId', (req, res) => {
+  if (!orchestrator) return res.status(503).json({ error: 'Not initialized' });
+  const snapshot = orchestrator.getSnapshot(req.params.instrumentId);
+  if (!snapshot) return res.status(404).json({ error: 'Instrument not found' });
+  res.json(snapshot);
+});
+
+app.get('/api/snapshots', (req, res) => {
+  if (!orchestrator) return res.status(503).json({ error: 'Not initialized' });
+  res.json(orchestrator.getAllSnapshots());
+});
+
+// Start/Stop instruments
+app.post('/api/instrument/:instrumentId/start', (req, res) => {
+  if (!orchestrator) return res.status(503).json({ error: 'Not initialized' });
+  orchestrator.startInstrument(req.params.instrumentId);
+  res.json({ success: true, instrumentId: req.params.instrumentId });
+});
+
+app.post('/api/instrument/:instrumentId/stop', (req, res) => {
+  if (!orchestrator) return res.status(503).json({ error: 'Not initialized' });
+  orchestrator.stopInstrument(req.params.instrumentId);
+  res.json({ success: true, instrumentId: req.params.instrumentId });
+});
+
+app.post('/api/start-all', (req, res) => {
+  if (!orchestrator) return res.status(503).json({ error: 'Not initialized' });
+  orchestrator.startAll();
+  res.json({ success: true });
+});
+
+app.post('/api/stop-all', (req, res) => {
+  if (!orchestrator) return res.status(503).json({ error: 'Not initialized' });
+  orchestrator.stopAll();
+  res.json({ success: true });
+});
+
+// ── AUDIT API ENDPOINTS ─────────────────────────────────────
+app.get('/api/audit/performance', (req, res) => {
+  if (!signalAudit) return res.status(503).json({ error: 'Audit not initialized' });
+  const { instrument, date, days } = req.query;
+  try {
+    const report = signalAudit.getPerformanceReport({
+      instrument,
+      date,
+      days: parseInt(days) || 7,
+    });
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/audit/signals', (req, res) => {
+  if (!signalAudit) return res.status(503).json({ error: 'Audit not initialized' });
+  const { instrument, limit } = req.query;
+  try {
+    const signals = signalAudit.getRecentSignals(instrument, parseInt(limit) || 50);
+    res.json(signals);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/audit/signal/:auditId', (req, res) => {
+  if (!signalAudit) return res.status(503).json({ error: 'Audit not initialized' });
+  try {
+    const detail = signalAudit.getSignalDetails(req.params.auditId);
+    if (!detail) return res.status(404).json({ error: 'Signal not found' });
+    res.json(detail);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── TRADITIONAL API (preserved) ─────────────────────────────
+app.get('/api/signals/:instrument', (req, res) => {
+  const signals = database.getSignals(req.params.instrument, 100);
+  res.json(signals);
+});
+
+app.get('/api/trades/:instrument', (req, res) => {
+  const trades = database.getTrades(req.params.instrument, 100);
+  res.json(trades);
+});
+
+app.get('/api/performance/:date', (req, res) => {
+  const performance = database.getDailyPerformance(req.params.date);
+  res.json(performance);
+});
+
+// ── START SERVER ────────────────────────────────────────────
+const PORT = process.env.PORT || 3000;
+
+async function start() {
+  await initialize();
+  server.listen(PORT, () => {
+    logger.info(`[Server] Running on port ${PORT}`);
+  });
+}
+
+// ── GRACEFUL SHUTDOWN ───────────────────────────────────────
+async function shutdown() {
+  logger.info('[Server] Shutting down...');
+
+  if (orchestrator) {
+    await orchestrator.shutdown();
+  }
+
+  if (redisClient) {
+    await redisClient.quit();
+  }
+
+  database.close();
+
+  server.close(() => {
+    logger.info('[Server] HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force exit after 10s
+  setTimeout(() => {
+    logger.error('[Server] Forced shutdown');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+process.on('uncaughtException', (err) => {
+  logger.error(`[Server] Uncaught exception: ${err.message}`);
+  shutdown();
+});
+
+start().catch((err) => {
+  logger.error(`[Server] Failed to start: ${err.message}`);
+  process.exit(1);
+});

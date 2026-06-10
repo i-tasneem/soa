@@ -1,22 +1,30 @@
 {
   "name": "soa-trader",
-  "version": "2.1.0",
-  "description": "Sensex Option Assistant — Local PWA with Angel One Live Data",
+  "version": "7.0.0",
+  "description": "SOA Trader v7 — Broker-Agnostic with Signal Audit Framework",
   "main": "server.js",
   "scripts": {
-    "build": "node build.js",
     "start": "node server.js",
-    "dev": "node server.js",
-    "test": "node test.js"
+    "dev": "nodemon server.js",
+    "build": "node build.js",
+    "test": "node test-signal-engine.js && node test-multi-instrument.js",
+    "test:signal": "node test-signal-engine.js",
+    "test:multi": "node test-multi-instrument.js"
   },
   "dependencies": {
-    "axios": "^1.17.0",
-    "better-sqlite3": "^12.10.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.0.0",
-    "express": "^4.18.2",
-    "otplib": "^12.0.1",
+    "axios": "^1.6.0",
+    "better-sqlite3": "^9.4.0",
+    "dotenv": "^16.3.0",
+    "express": "^4.18.0",
+    "otplib": "^12.0.0",
+    "redis": "^4.6.0",
     "winston": "^3.11.0",
-    "ws": "^8.14.2"
+    "ws": "^8.14.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

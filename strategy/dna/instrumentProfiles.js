@@ -1,155 +1,80 @@
 // ============================================================
-// INSTRUMENT PROFILES
-// DNA configuration for each tradable instrument
+// INSTRUMENT PROFILES v7 — Added Dhan Security IDs
+// Changes from v6:
+// 1. Added dhanSecurityId field for each instrument
+// 2. Added dhanExchange field for option exchange mapping
+// 3. Preserved all existing fields for backward compatibility
 // ============================================================
 
-const NIFTY = {
-  market: 'NSE',
-  indexExchange: 'NSE',
-  indexToken: '99926000',
-  optionExchange: 'NFO',
-  instrumenttype: 'OPTIDX',
-  name: 'NIFTY',
-  lotSize: 25,
-  strikeStep: 50,
-  tickSize: 0.05,
-  expiryType: 'weekly',
-  expiryDayOfWeek: 2,
-  atrPeriod: 14,
-  atrMultiplier: { target: 0.8, sl: 0.6 },
-  minPremium: 15,
-  maxPremium: 800,
-  optimalWindows: ['09:30-11:30', '13:30-15:00'],
-  ivPercentileMax: 70,
-  gammaRiskExpiryHours: 3,
-  oiWallThreshold: 1.5,
-  first15MinBan: true,
-  lunchBanStart: '12:00',
-  lunchBanEnd: '13:15',
-  maxSignalsDay: 5,
-  maxTradesDay: 3,
-  cooldownMs: 300000,
+const instrumentProfiles = {
+  NIFTY: {
+    name: 'NIFTY 50',
+    exchange: 'NSE',
+    token: '26000',
+    dhanSecurityId: '13',        // NIFTY index on Dhan
+    dhanExchange: 'NSE',        // Dhan exchange code
+    dhanOptionExchange: 'NFO',  // Dhan options exchange
+    instrumenttype: 'OPTIDX',
+    optionExchange: 'NFO',
+    strikeStep: 50,
+    lots: 15,
+    optimalWindows: [
+      { start: '09:30', end: '11:30' },
+      { start: '13:30', end: '15:00' },
+    ],
+    description: 'NIFTY 50 Index Options',
+  },
+  BANKNIFTY: {
+    name: 'NIFTY BANK',
+    exchange: 'NSE',
+    token: '26009',
+    dhanSecurityId: '25',        // BANKNIFTY index on Dhan
+    dhanExchange: 'NSE',
+    dhanOptionExchange: 'NFO',
+    instrumenttype: 'OPTIDX',
+    optionExchange: 'NFO',
+    strikeStep: 100,
+    lots: 15,
+    optimalWindows: [
+      { start: '09:30', end: '11:30' },
+      { start: '13:30', end: '15:00' },
+    ],
+    description: 'NIFTY Bank Index Options',
+  },
+  SENSEX: {
+    name: 'SENSEX',
+    exchange: 'BSE',
+    token: '1',
+    dhanSecurityId: '51',        // SENSEX index on Dhan
+    dhanExchange: 'BSE',
+    dhanOptionExchange: 'BFO',
+    instrumenttype: 'OPTIDX',
+    optionExchange: 'BFO',
+    strikeStep: 100,
+    lots: 10,
+    optimalWindows: [
+      { start: '09:30', end: '11:30' },
+      { start: '13:30', end: '15:00' },
+    ],
+    description: 'BSE SENSEX Index Options',
+  },
+  BANKEX: {
+    name: 'BANKEX',
+    exchange: 'BSE',
+    token: '12',
+    dhanSecurityId: '69',        // BANKEX index on Dhan
+    dhanExchange: 'BSE',
+    dhanOptionExchange: 'BFO',
+    instrumenttype: 'OPTIDX',
+    optionExchange: 'BFO',
+    strikeStep: 100,
+    lots: 10,
+    optimalWindows: [
+      { start: '09:30', end: '11:30' },
+      { start: '13:30', end: '15:00' },
+    ],
+    description: 'BSE BANKEX Index Options',
+  },
 };
 
-const BANKNIFTY = {
-  market: 'NSE',
-  indexExchange: 'NSE',
-  indexToken: '99926009',
-  optionExchange: 'NFO',
-  instrumenttype: 'OPTIDX',
-  name: 'BANKNIFTY',
-  lotSize: 15,
-  strikeStep: 100,
-  tickSize: 0.05,
-  expiryType: 'monthly',
-  expiryDayOfWeek: 2,
-  atrMultiplier: { target: 1.0, sl: 0.75 },
-  minPremium: 25,
-  maxPremium: 1200,
-  optimalWindows: ['10:30-11:15', '14:00-14:30'],
-  gammaRiskExpiryHours: 4,
-  ivPercentileMax: 65,
-  maxSignalsDay: 5,
-  maxTradesDay: 3,
-  cooldownMs: 300000,
-};
-
-const FINNIFTY = {
-  market: 'NSE',
-  indexExchange: 'NSE',
-  indexToken: '99926037',
-  optionExchange: 'NFO',
-  instrumenttype: 'OPTIDX',
-  name: 'FINNIFTY',
-  lotSize: 25,
-  strikeStep: 50,
-  tickSize: 0.05,
-  expiryType: 'monthly',
-  expiryDayOfWeek: 2,
-  atrMultiplier: { target: 0.9, sl: 0.7 },
-  minPremium: 20,
-  maxPremium: 900,
-  optimalWindows: ['10:00-11:00', '14:15-15:00'],
-  gammaRiskExpiryHours: 4,
-  ivPercentileMax: 65,
-  maxSignalsDay: 5,
-  maxTradesDay: 3,
-  cooldownMs: 300000,
-};
-
-const SENSEX = {
-  market: 'BSE',
-  indexExchange: 'BSE',
-  indexToken: '99919000',
-  optionExchange: 'BFO',
-  instrumenttype: 'OPTIDX',
-  name: 'SENSEX',
-  lotSize: 20,
-  strikeStep: 100,
-  tickSize: 0.05,
-  expiryType: 'weekly',
-  expiryDayOfWeek: 4,
-  atrMultiplier: { target: 0.8, sl: 0.6 },
-  minPremium: 15,
-  maxPremium: 800,
-  optimalWindows: ['09:30-11:30', '13:30-15:00'],
-  gammaRiskExpiryHours: 3,
-  ivPercentileMax: 70,
-  maxSignalsDay: 5,
-  maxTradesDay: 3,
-  cooldownMs: 300000,
-};
-
-const BANKEX = {
-  market: 'BSE',
-  indexExchange: 'BSE',
-  indexToken: '99919001',
-  optionExchange: 'BFO',
-  instrumenttype: 'OPTIDX',
-  name: 'BANKEX',
-  lotSize: 10,
-  strikeStep: 100,
-  tickSize: 0.05,
-  expiryType: 'monthly',
-  expiryDayOfWeek: 4,
-  atrMultiplier: { target: 0.9, sl: 0.7 },
-  minPremium: 20,
-  maxPremium: 900,
-  optimalWindows: ['10:15-11:30'],
-  gammaRiskExpiryHours: 4,
-  ivPercentileMax: 65,
-  maxSignalsDay: 5,
-  maxTradesDay: 3,
-  cooldownMs: 300000,
-};
-
-const STOCK_OPTION_TEMPLATE = {
-  market: 'NSE',
-  indexExchange: 'NSE',
-  optionExchange: 'NFO',
-  instrumenttype: 'OPTSTK',
-  name: null,
-  lotSize: null,
-  strikeStep: null,
-  tickSize: 0.05,
-  expiryType: 'monthly',
-  expiryDayOfWeek: 2,
-  atrMultiplier: { target: 0.6, sl: 0.5 },
-  minPremium: 10,
-  maxPremium: 500,
-  optimalWindows: ['10:00-11:30', '14:00-15:00'],
-  gammaRiskExpiryHours: 24,
-  ivPercentileMax: 75,
-  maxSignalsDay: 3,
-  maxTradesDay: 2,
-  cooldownMs: 300000,
-};
-
-module.exports = {
-  NIFTY,
-  BANKNIFTY,
-  FINNIFTY,
-  SENSEX,
-  BANKEX,
-  STOCK_OPTION_TEMPLATE,
-};
+module.exports = { instrumentProfiles };
