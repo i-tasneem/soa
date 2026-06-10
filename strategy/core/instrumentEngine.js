@@ -15,16 +15,18 @@ const logger = require('../../logger');
 const CandleBuilder = require('../candleBuilder').CandleBuilder;
 const indicators = require('../indicators');
 const { VWAPCalculator } = require('../indicators');
-const MarketStateEngine = require('../marketStateEngine').MarketStateEngine;
 const OIEngine = require('../oiEngine').OIEngine;
 const SignalEngine = require('../signalEngine').SignalEngine;
 const TradeManager = require('../tradeManager').TradeManager;
-const AbortEngine = require('../abortEngine').AbortEngine;
-const DataFreshness = require('../dataFreshness').DataFreshness;
-const GreeksCalculator = require('../greeksCalculator').GreeksCalculator;
-const SignalCalibrator = require('../signalCalibrator').SignalCalibrator;
+const MarketStateEngine = require('../marketStateEngine').MarketStateEngineClass;
+const AbortEngine = require('../abortEngine');
+const DataFreshness = require('../dataFreshness');
+const GreeksCalculator = require('../greeksCalculator');
+const SignalCalibrator = require('../signalCalibrator');
 const EarlyEntryDetector = require('../earlyEntryDetector').EarlyEntryDetector;
-const RegimeDetector = require('../regimeDetector').RegimeDetector;
+const RegimeDetector = require('../regimeDetector');
+
+
 
 class InstrumentEngine extends EventEmitter {
   constructor(instrumentId, profile, config = {}) {
@@ -40,7 +42,7 @@ class InstrumentEngine extends EventEmitter {
     this.marketState = new MarketStateEngine();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();
-    this.tradeManager = new TradeManager(instrumentId, profile);
+    this.tradeManager = new TradeManager();
     this.abortEngine = new AbortEngine();
     this.dataFreshness = new DataFreshness();
     this.greeksCalculator = new GreeksCalculator();
