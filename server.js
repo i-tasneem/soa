@@ -89,6 +89,7 @@ async function initialize() {
     for (const [instrumentId, profile] of Object.entries(config.instruments || {})) {
       orchestrator.addInstrument(instrumentId, profile);
     }
+	orchestrator.startAll();
 
     // Bind orchestrator events to WebSocket
     orchestrator.on('broadcast', (data) => {

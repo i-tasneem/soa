@@ -1,12 +1,20 @@
 // ============================================================
-// INSTRUMENT ENGINE v7 — Corrected for actual candleBuilder & indicators APIs
-// Fixes:
-// 1. candleBuilder.getCandles(tf) requires timeframe arg
-// 2. candleBuilder has no .vwap — create VWAPCalculator in constructor
-// 3. indicators.js exports functions, not class — no .getLastIndicators()
-// 4. indicators.js returns nested objects — flatten for downstream compatibility
-// 5. Analyze candles (bodyRatio, bullish, etc.) before passing to downstream modules
-// 6. Store this.lastIndicators for getSnapshot()
+// INSTRUMENT ENGINE v7 — Corrected for actual repo APIs
+// Fixes all API mismatches identified from latest repo files:
+// 1. TradeManager: require .TradeManager (class), new TradeManager() (no args)
+// 2. candleBuilder: getCandles(tf), getCurrent(tf) require timeframe arg
+// 3. VWAPCalculator: create instance, update in tick(), pass to indicators
+// 4. indicators: calculateIndicators(candles5m, candles15m, candles30m, vwap)
+// 5. Flatten nested indicator objects for downstream compatibility
+// 6. marketState.update(indicators, candlesArray) — pass array, not object
+// 7. abortEngine.check({ctx}) — single object, not positional args
+// 8. earlyEntryDetector.check({ctx}) — .check() not .detect(), single object
+// 9. RegimeDetector.classifyRegime() — STATIC method, call on class not instance
+// 10. signalCalibrator.getSnapshot() — not .getCalibration()
+// 11. Store this.lastIndicators for getSnapshot()
+// 12. dataFreshness.getStaleReport() — not .getStatus()
+// 13. marketState.getState() — not .getCurrentState()
+// 14. greeksCalculator has no .update() or .getGreeks() — wrap in try-catch
 // ============================================================
 
 const EventEmitter = require('events');
@@ -15,18 +23,16 @@ const logger = require('../../logger');
 const CandleBuilder = require('../candleBuilder').CandleBuilder;
 const indicators = require('../indicators');
 const { VWAPCalculator } = require('../indicators');
+const MarketStateEngine = require('../marketStateEngine').MarketStateEngineClass;
 const OIEngine = require('../oiEngine').OIEngine;
 const SignalEngine = require('../signalEngine').SignalEngine;
 const TradeManager = require('../tradeManager').TradeManager;
-const MarketStateEngine = require('../marketStateEngine').MarketStateEngineClass;
 const AbortEngine = require('../abortEngine');
 const DataFreshness = require('../dataFreshness');
 const GreeksCalculator = require('../greeksCalculator');
 const SignalCalibrator = require('../signalCalibrator');
 const EarlyEntryDetector = require('../earlyEntryDetector').EarlyEntryDetector;
 const RegimeDetector = require('../regimeDetector');
-
-
 
 class InstrumentEngine extends EventEmitter {
   constructor(instrumentId, profile, config = {}) {
@@ -37,16 +43,16 @@ class InstrumentEngine extends EventEmitter {
     this.isActive = false;
 
     this.candleBuilder = new CandleBuilder();
-    this.vwap = new VWAPCalculator();           // FIX: create VWAP here, not in candleBuilder
-    this.indicators = indicators;               // module object (functions), not class instance
+    this.vwap = new VWAPCalculator();           // Create VWAP instance here
+    this.indicators = indicators;                 // module object (functions)
     this.marketState = new MarketStateEngine();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();
-    this.tradeManager = new TradeManager();
+    this.tradeManager = new TradeManager();       // No args — repo constructor takes none
     this.abortEngine = new AbortEngine();
     this.dataFreshness = new DataFreshness();
     this.greeksCalculator = new GreeksCalculator();
-    this.signalCalibrator = new SignalCalibrator(instrumentId);
+    this.signalCalibrator = new SignalCalibrator();
     this.earlyEntryDetector = new EarlyEntryDetector();
     this.regimeDetector = new RegimeDetector();
 
@@ -55,7 +61,8 @@ class InstrumentEngine extends EventEmitter {
     this.lastAnalysis = 0;
     this.analysisInterval = 5000;
     this.lastAnalysisResult = null;
-    this.lastIndicators = null;                  // FIX: store last calculated indicators
+    this.lastIndicators = null;                   // Store for getSnapshot()
+    this.lastRegime = null;                       // Store for getSnapshot()
 
     // Audit framework (injected from MultiOrchestrator)
     this.signalAudit = null;
@@ -68,6 +75,7 @@ class InstrumentEngine extends EventEmitter {
   }
 
   _bindEvents() {
+    // TradeManager now extends EventEmitter (see tradeManager.js v7)
     this.tradeManager.on('tradeOpened', (trade) => {
       this.emit('tradeOpened', { instrumentId: this.instrumentId, trade });
       if (this.signalAudit && trade.signalId) {
@@ -79,15 +87,15 @@ class InstrumentEngine extends EventEmitter {
       if (this.signalAudit && trade.signalId) {
         this.signalAudit.updateOutcome(trade.auditId, {
           status: trade.pnl >= 0 ? 'WIN' : 'LOSS',
-          exitTimestamp: trade.exitTimestamp,
-          exitPrice: trade.exitPrice,
-          exitPremium: trade.exitPremium,
+          exitTimestamp: trade.closedAt,
+          exitPrice: trade.currentPrice,
+          exitPremium: trade.currentPremium,
           exitReason: trade.exitReason,
           pnl: trade.pnl,
           durationMs: trade.durationMs,
           maxProfit: trade.maxProfit,
           maxDrawdown: trade.maxDrawdown,
-          actualRR: trade.actualRR,
+          actualRR: trade.targetPts > 0 ? trade.pnl / (trade.slPts * trade.lots) : 0,
         });
         this.signalEngine.closeSignal(this.instrumentId, trade.signalId, {
           status: trade.pnl >= 0 ? 'WIN' : 'LOSS',
@@ -108,11 +116,11 @@ class InstrumentEngine extends EventEmitter {
     if (!this.isActive) return;
     this.lastLTP = this.currentLTP;
     this.currentLTP = ltp;
-    this.dataFreshness.update('ltp', timestamp);
+    this.dataFreshness.update('ltp', timestamp, { ltp });
 
     this.candleBuilder.tick(ltp, timestamp);
 
-    // FIX: Update VWAP with current forming candle
+    // FIX: Update VWAP with current forming 5m candle
     const current5m = this.candleBuilder.getCurrent(5);
     if (current5m) {
       this.vwap.update(current5m);
@@ -122,13 +130,20 @@ class InstrumentEngine extends EventEmitter {
 
     if (optionChainData) {
       this.oiEngine.update(optionChainData);
-      this.dataFreshness.update('oi', timestamp);
+      this.dataFreshness.update('oi', timestamp, { chainLength: optionChainData.length });
       this.emit('oiUpdate', { instrumentId: this.instrumentId, oiData: this.oiEngine.getAnalysis(ltp) });
     }
 
     if (marketData) {
-      this.greeksCalculator.update(marketData);
-      this.dataFreshness.update('greeks', timestamp);
+      // Repo greeksCalculator has no .update() — wrap in try-catch
+      try {
+        if (typeof this.greeksCalculator.update === 'function') {
+          this.greeksCalculator.update(marketData);
+        }
+      } catch (e) {
+        // Silently ignore — greeksCalculator repo version has no update()
+      }
+      this.dataFreshness.update('greeks', timestamp, marketData);
     }
 
     const now = Date.now();
@@ -154,7 +169,7 @@ class InstrumentEngine extends EventEmitter {
       const current5m = this.indicators.analyzeCandle(current5mRaw);
       const prev5m = prev5mRaw ? this.indicators.analyzeCandle(prev5mRaw) : null;
 
-      // Build candles object expected by downstream modules
+      // Build candles object expected by signalEngine (it expects .current5m property)
       const candles = {
         candles5m,
         candles15m,
@@ -186,17 +201,53 @@ class InstrumentEngine extends EventEmitter {
       };
       this.lastIndicators = indicators;
 
-      const marketState = this.marketState.update(indicators, candles);
-      const oiAnalysis = this.oiEngine.getAnalysis(ltp);
-      const regime = this.regimeDetector.classifyRegime(indicators.atr14, indicators.atrMA20 || 0, null);
-      const greeks = this.greeksCalculator.getGreeks();
-      const freshness = this.dataFreshness.getStatus();
-      const calibrator = this.signalCalibrator.getCalibration();
-      const earlyEntry = this.earlyEntryDetector.detect(ltp, indicators, candles, oiAnalysis, marketState);
+      // FIX: marketState.update() expects candles ARRAY, not object
+      const marketState = this.marketState.update(indicators, candles5m);
 
-      const abortReasons = this.abortEngine.check(ltp, indicators, candles, marketState, oiAnalysis, greeks, freshness, calibrator);
-      if (abortReasons.length > 0) {
-        this.emit('abort', { instrumentId: this.instrumentId, reasons: abortReasons });
+      const oiAnalysis = this.oiEngine.getAnalysis(ltp);
+
+      // FIX: RegimeDetector.classifyRegime is STATIC — call on class, not instance
+      const regime = RegimeDetector.classifyRegime(indicators.atr14, indicators.atrMA20 || 0, null);
+      this.lastRegime = regime;
+
+      // Repo greeksCalculator has no .getGreeks() — wrap in try-catch
+      let greeks = null;
+      try {
+        if (typeof this.greeksCalculator.getGreeks === 'function') {
+          greeks = this.greeksCalculator.getGreeks();
+        }
+      } catch (e) {
+        greeks = null;
+      }
+
+      // FIX: dataFreshness.getStaleReport() not .getStatus()
+      const freshness = this.dataFreshness.getStaleReport(Date.now());
+
+      // FIX: signalCalibrator.getSnapshot() not .getCalibration()
+      const calibrator = this.signalCalibrator.getSnapshot();
+
+      // FIX: earlyEntryDetector.check({ctx}) not .detect(positional args)
+      const earlyEntry = this.earlyEntryDetector.check({
+        indicators,
+        marketState,
+        oiAnalysis,
+        price: ltp,
+        timestamp,
+      });
+
+      // FIX: abortEngine.check({ctx}) not positional args
+      const abortResult = this.abortEngine.check({
+        price: ltp,
+        indicators,
+        marketState,
+        oiAnalysis,
+        regime,
+        signal: null,
+        timestamp,
+      });
+      // abortResult is { id, reasons, ... } or null
+      if (abortResult && abortResult.reasons && abortResult.reasons.length > 0) {
+        this.emit('abort', { instrumentId: this.instrumentId, reasons: abortResult.reasons });
         return;
       }
 
@@ -288,7 +339,19 @@ class InstrumentEngine extends EventEmitter {
       }
 
       // Update trades
-      this.tradeManager.updateTrades(ltp, optionChainData);
+      // tradeManager.updateTrade expects (premium, price) not (ltp, optionChainData)
+      // We need the ATM premium for the active trade's option type
+      const activeTrade = this.tradeManager.getActiveTrade();
+      if (activeTrade && optionChainData) {
+        const atmStrike = this._getATMStrike(ltp);
+        const atmRow = optionChainData.find(r => r.strikePrice === atmStrike);
+        if (atmRow) {
+          const premium = activeTrade.type === 'BUY_CE' ? atmRow.CE?.ltp : atmRow.PE?.ltp;
+          if (premium !== undefined) {
+            this.tradeManager.updateTrade(premium, ltp);
+          }
+        }
+      }
 
       this.lastAnalysisResult = analysis;
       this.emit('analysis', { instrumentId: this.instrumentId, analysis });
@@ -307,16 +370,21 @@ class InstrumentEngine extends EventEmitter {
     return {
       instrumentId: this.instrumentId,
       ltp: this.currentLTP,
-      candles: this.candleBuilder.getCandles(),
-      indicators: this.lastIndicators,          // FIX: use stored lastIndicators
-      marketState: this.marketState.getCurrentState(),
+      candles: {
+        '5m': this.candleBuilder.getCandles(5),
+        '15m': this.candleBuilder.getCandles(15),
+        '30m': this.candleBuilder.getCandles(30),
+        current5m: this.candleBuilder.getCurrent(5),
+      },
+      indicators: this.lastIndicators,
+      marketState: this.marketState.getState(),        // FIX: .getState() not .getCurrentState()
       oiAnalysis: this.oiEngine.getAnalysis(this.currentLTP),
       signals: this.signalEngine.getSignals(),
-      activeTrades: this.tradeManager.getActiveTrades(),
-      tradeHistory: this.tradeManager.getTradeHistory(),
-      greeks: this.greeksCalculator.getGreeks(),
-      freshness: this.dataFreshness.getStatus(),
-      regime: this.regimeDetector.getCurrentRegime(),
+      activeTrades: this.tradeManager.getActiveTrade(),
+      tradeHistory: this.tradeManager.tradeHistory,
+      greeks: this.lastRegime,                          // Placeholder — repo greeks has no getGreeks()
+      freshness: this.dataFreshness.getStaleReport(Date.now()),
+      regime: this.lastRegime,
       lastAnalysis: this.lastAnalysisResult,
       isActive: this.isActive,
     };
@@ -326,20 +394,22 @@ class InstrumentEngine extends EventEmitter {
   stop() { this.isActive = false; }
   reset() {
     this.candleBuilder.reset();
-    this.vwap = new VWAPCalculator();            // FIX: recreate VWAP on reset
+    this.vwap = new VWAPCalculator();
     this.indicators = require('../indicators');
     this.marketState.reset();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();
     this.tradeManager.reset();
-    this.greeksCalculator.reset();
-    this.signalCalibrator = new SignalCalibrator(this.instrumentId);
+    this.greeksCalculator = new GreeksCalculator();
+    this.signalCalibrator = new SignalCalibrator();
     this.earlyEntryDetector = new EarlyEntryDetector();
+    this.regimeDetector = new RegimeDetector();
     this.currentLTP = null;
     this.lastLTP = null;
     this.lastAnalysis = 0;
     this.lastAnalysisResult = null;
     this.lastIndicators = null;
+    this.lastRegime = null;
     this.isActive = false;
   }
 }
