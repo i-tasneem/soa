@@ -7,7 +7,7 @@
 // 4. Added Redis cache integration (optional, fallback to memory)
 // ============================================================
 
-const logger = require('../logger');
+const logger = require('../../logger');
 
 class MarketDataService {
   constructor(brokerAdapter, options = {}) {
@@ -49,6 +49,35 @@ class MarketDataService {
       this._masterLoadPromise = null;
     }
   }
+	
+  _buildAllTokenMaps() {
+    for (const instrumentId of ['NIFTY', 'BANKNIFTY', 'SENSEX', 'BANKEX']) {
+        this.tokenMap[instrumentId] = this._buildTokenMap(instrumentId);
+    }
+}
+
+_buildTokenMap(instrumentId) {
+    const map = {};
+    if (!this.instrumentMaster) return map;
+    for (const item of this.instrumentMaster) {
+        const name = item.name || item.symbol || item.tradingsymbol || '';
+        if (name.includes(instrumentId)) {
+            map[item.token] = {
+                symbol: item.symbol || item.tradingsymbol,
+                name: item.name,
+                token: item.token,
+                exch_seg: item.exch_seg || item.exchange,
+                expiry: item.expiry,
+                strike: parseFloat(item.strike) || 0,
+                lotsize: parseInt(item.lotsize) || 0,
+                instrumenttype: item.instrumenttype,
+                tick_size: parseFloat(item.tick_size) || 0,
+            };
+        }
+    }
+    return map;
+}
+
 
   async _doLoadMaster() {
     try {
@@ -126,7 +155,11 @@ class MarketDataService {
   // ── OPTION CHAIN FETCH ──────────────────────────────────────
   async fetchOptionChain(instrumentId, spotPrice, expiry, profile) {
     const cacheKey = `oc:${instrumentId}:${expiry}`;
-
+	const result = await this.broker.getOptionChain(
+    instrumentId, spotPrice, expiry, 
+    this.tokenMap[instrumentId] || {},  // ← pass specific instrument's map
+    profile
+	);
     // Try Redis cache
     const cached = await this._cacheGet(cacheKey);
     if (cached && Date.now() - cached.timestamp < 30000) { // 30s stale tolerance

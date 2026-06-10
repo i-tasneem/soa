@@ -12,21 +12,21 @@ require('dotenv').config();
 const config = {
   // ── BROKER CONFIGURATION ───────────────────────────────────
   broker: {
-    // Supported: 'angel', 'dhan'
     type: process.env.BROKER_TYPE || 'angel',
+    angel: {
+        apiKey: process.env.ANGEL_API_KEY || '',
+        clientId: process.env.ANGEL_CLIENT_ID || '',
+        password: process.env.ANGEL_PASSWORD || '',
+        totpSecret: process.env.ANGEL_TOTP_SECRET || '',
+        baseUrl: process.env.ANGEL_BASE_URL || 'https://apiconnect.angelone.in',
+    },
+    dhan: {
+        accessToken: process.env.DHAN_ACCESS_TOKEN || '',
+        clientId: process.env.DHAN_CLIENT_ID || '',
+        baseUrl: process.env.DHAN_BASE_URL || 'https://api.dhan.co',
+    },
+},
 
-    // Angel One credentials (used when type = 'angel')
-    apiKey: process.env.ANGEL_API_KEY || '',
-    clientId: process.env.ANGEL_CLIENT_ID || '',
-    password: process.env.ANGEL_PASSWORD || '',
-    totpSecret: process.env.ANGEL_TOTP_SECRET || '',
-    baseUrl: process.env.ANGEL_BASE_URL || 'https://apiconnect.angelone.in',
-
-    // Dhan credentials (used when type = 'dhan')
-    accessToken: process.env.DHAN_ACCESS_TOKEN || '',
-    clientId: process.env.DHAN_CLIENT_ID || '',
-    baseUrl: process.env.DHAN_BASE_URL || 'https://api.dhan.co',
-  },
 
   // ── REDIS CONFIGURATION ────────────────────────────────────
   redis: {

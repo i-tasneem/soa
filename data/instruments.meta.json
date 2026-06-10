@@ -1,1 +1,6 @@
-{"downloadedAt":1779099469199,"count":3628,"expiries":["02JUL2026","04JUN2026","11JUN2026","18JUN2026","21MAY2026","24JUN2027","24SEP2026","25JUN2026","25MAR2027","26DEC2030","27DEC2029","27JUN2030","27MAY2026","28DEC2028","28JUN2029","29JUN2028","30DEC2027","30JUL2026","31DEC2026"],"source":"https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"}
+{
+  "broker": "angel",
+  "generatedAt": "2026-06-10T05:57:35.237Z",
+  "totalCount": 167229,
+  "relevantCount": 10768
+}

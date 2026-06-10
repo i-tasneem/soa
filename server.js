@@ -63,15 +63,10 @@ async function initialize() {
 
     // Create broker adapter from config
     const brokerType = config.broker?.type || 'angel';
-    const brokerConfig = {
-      baseUrl: config.broker?.baseUrl,
-      apiKey: config.broker?.apiKey,
-      clientId: config.broker?.clientId,
-      password: config.broker?.password,
-      totpSecret: config.broker?.totpSecret,
-      accessToken: config.broker?.accessToken,
-      ...config.broker,
-    };
+	const brokerConfig = brokerType === 'angel' 
+    ? config.broker.angel 
+    : config.broker.dhan;
+
 
     const brokerAdapter = createBrokerAdapter(brokerType, brokerConfig);
     logger.info(`[Server] Broker adapter created: ${brokerType}`);

@@ -1,28 +1,30 @@
 // ============================================================
-// INSTRUMENT ENGINE v7 — Audit Integration + Broker Adapter
-// Changes from v6:
-// 1. Signal audit logging on every signal generation
-// 2. Outcome tracking on trade open/close
-// 3. Broker adapter passed in (not hardcoded Angel)
-// 4. Signal lifecycle state transitions (NEW → ACTIVE → CLOSED)
-// STRATEGY LOGIC UNCHANGED
+// INSTRUMENT ENGINE v7 — Corrected for actual candleBuilder & indicators APIs
+// Fixes:
+// 1. candleBuilder.getCandles(tf) requires timeframe arg
+// 2. candleBuilder has no .vwap — create VWAPCalculator in constructor
+// 3. indicators.js exports functions, not class — no .getLastIndicators()
+// 4. indicators.js returns nested objects — flatten for downstream compatibility
+// 5. Analyze candles (bodyRatio, bullish, etc.) before passing to downstream modules
+// 6. Store this.lastIndicators for getSnapshot()
 // ============================================================
 
 const EventEmitter = require('events');
-const logger = require('../logger');
+const logger = require('../../logger');
 
-const CandleBuilder = require('./candleBuilder').CandleBuilder;
-const Indicators = require('./indicators').Indicators;
-const MarketStateEngine = require('./marketStateEngine').MarketStateEngine;
-const OIEngine = require('./oiEngine').OIEngine;
-const SignalEngine = require('./signalEngine').SignalEngine;
-const TradeManager = require('./tradeManager').TradeManager;
-const AbortEngine = require('./abortEngine').AbortEngine;
-const DataFreshness = require('./dataFreshness').DataFreshness;
-const GreeksCalculator = require('./greeksCalculator').GreeksCalculator;
-const SignalCalibrator = require('./signalCalibrator').SignalCalibrator;
-const EarlyEntryDetector = require('./earlyEntryDetector').EarlyEntryDetector;
-const RegimeDetector = require('./regimeDetector').RegimeDetector;
+const CandleBuilder = require('../candleBuilder').CandleBuilder;
+const indicators = require('../indicators');
+const { VWAPCalculator } = require('../indicators');
+const MarketStateEngine = require('../marketStateEngine').MarketStateEngine;
+const OIEngine = require('../oiEngine').OIEngine;
+const SignalEngine = require('../signalEngine').SignalEngine;
+const TradeManager = require('../tradeManager').TradeManager;
+const AbortEngine = require('../abortEngine').AbortEngine;
+const DataFreshness = require('../dataFreshness').DataFreshness;
+const GreeksCalculator = require('../greeksCalculator').GreeksCalculator;
+const SignalCalibrator = require('../signalCalibrator').SignalCalibrator;
+const EarlyEntryDetector = require('../earlyEntryDetector').EarlyEntryDetector;
+const RegimeDetector = require('../regimeDetector').RegimeDetector;
 
 class InstrumentEngine extends EventEmitter {
   constructor(instrumentId, profile, config = {}) {
@@ -33,7 +35,8 @@ class InstrumentEngine extends EventEmitter {
     this.isActive = false;
 
     this.candleBuilder = new CandleBuilder();
-    this.indicators = new Indicators();
+    this.vwap = new VWAPCalculator();           // FIX: create VWAP here, not in candleBuilder
+    this.indicators = indicators;               // module object (functions), not class instance
     this.marketState = new MarketStateEngine();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();
@@ -50,6 +53,7 @@ class InstrumentEngine extends EventEmitter {
     this.lastAnalysis = 0;
     this.analysisInterval = 5000;
     this.lastAnalysisResult = null;
+    this.lastIndicators = null;                  // FIX: store last calculated indicators
 
     // Audit framework (injected from MultiOrchestrator)
     this.signalAudit = null;
@@ -64,14 +68,12 @@ class InstrumentEngine extends EventEmitter {
   _bindEvents() {
     this.tradeManager.on('tradeOpened', (trade) => {
       this.emit('tradeOpened', { instrumentId: this.instrumentId, trade });
-      // Audit: activate signal lifecycle
       if (this.signalAudit && trade.signalId) {
         this.signalEngine.activateSignal(this.instrumentId, trade.signalId);
       }
     });
     this.tradeManager.on('tradeClosed', (trade) => {
       this.emit('tradeClosed', { instrumentId: this.instrumentId, trade });
-      // Audit: update outcome
       if (this.signalAudit && trade.signalId) {
         this.signalAudit.updateOutcome(trade.auditId, {
           status: trade.pnl >= 0 ? 'WIN' : 'LOSS',
@@ -107,6 +109,13 @@ class InstrumentEngine extends EventEmitter {
     this.dataFreshness.update('ltp', timestamp);
 
     this.candleBuilder.tick(ltp, timestamp);
+
+    // FIX: Update VWAP with current forming candle
+    const current5m = this.candleBuilder.getCurrent(5);
+    if (current5m) {
+      this.vwap.update(current5m);
+    }
+
     this.emit('tick', { instrumentId: this.instrumentId, ltp, timestamp });
 
     if (optionChainData) {
@@ -130,13 +139,54 @@ class InstrumentEngine extends EventEmitter {
   _runAnalysis(ltp, timestamp, optionChainData) {
     if (!this.isActive) return;
     try {
-      const candles = this.candleBuilder.getCandles();
-      if (!candles.current5m) return;
+      // FIX: Get candles by timeframe (candleBuilder requires tf arg)
+      const candles5m = this.candleBuilder.getCandles(5);
+      const candles15m = this.candleBuilder.getCandles(15);
+      const candles30m = this.candleBuilder.getCandles(30);
+      const current5mRaw = this.candleBuilder.getCurrent(5);
+      const prev5mRaw = candles5m.length > 0 ? candles5m[candles5m.length - 1] : null;
 
-      const indicators = this.indicators.calculate(candles);
+      if (!current5mRaw) return;
+
+      // FIX: Analyze candles — add bodyRatio, bullish, bearish, etc.
+      const current5m = this.indicators.analyzeCandle(current5mRaw);
+      const prev5m = prev5mRaw ? this.indicators.analyzeCandle(prev5mRaw) : null;
+
+      // Build candles object expected by downstream modules
+      const candles = {
+        candles5m,
+        candles15m,
+        candles30m,
+        current5m,
+        prev5m,
+      };
+
+      // FIX: Calculate indicators with correct signature (arrays + vwap instance)
+      const indicatorData = this.indicators.calculateIndicators(candles5m, candles15m, candles30m, this.vwap);
+      if (!indicatorData) {
+        logger.warn(`[InstrumentEngine] ${this.instrumentId} indicators returned null (not enough candles)`);
+        return;
+      }
+
+      // FIX: Flatten nested objects for downstream compatibility
+      // indicators.js returns: vwap:{vwap,upper1...}, volume:{current,avg20}
+      // Downstream expects: vwap (scalar), volume (scalar), avgVolume (scalar)
+      const indicators = {
+        ...indicatorData,
+        ...indicatorData.bias,           // htfBullish, htfBearish, bullishEMA, bearishEMA, aboveVWAP, belowVWAP
+        ...indicatorData.momentum,       // bullMomentum, bearMomentum
+        ...indicatorData.breakout,       // priceAboveBB, priceBelowBB
+        ...indicatorData.candle,         // last, prev1, prev2 (analyzed candles)
+        vwap: indicatorData.vwapValue || (indicatorData.vwap?.vwap || 0),
+        volume: indicatorData.volume?.current || 0,
+        avgVolume: indicatorData.volume?.avg20 || 0,
+        atrMA20: indicatorData.atr14_MA20 || 0,   // alias for regimeDetector
+      };
+      this.lastIndicators = indicators;
+
       const marketState = this.marketState.update(indicators, candles);
       const oiAnalysis = this.oiEngine.getAnalysis(ltp);
-      const regime = this.regimeDetector.classifyRegime(indicators.atr14, indicators.atr14 > 0 ? indicators.atr14 / 1.0 : 0, null);
+      const regime = this.regimeDetector.classifyRegime(indicators.atr14, indicators.atrMA20 || 0, null);
       const greeks = this.greeksCalculator.getGreeks();
       const freshness = this.dataFreshness.getStatus();
       const calibrator = this.signalCalibrator.getCalibration();
@@ -208,25 +258,27 @@ class InstrumentEngine extends EventEmitter {
             abortFlags: [],
             factors: signal.factors || [],
           });
-          signal.auditId = auditId; // Link signal to audit record
+          signal.auditId = auditId;
         }
 
         this.emit('signal', { instrumentId: this.instrumentId, signal, analysis });
 
-        const premium = signal.type === 'BUY_CE' ? optionChainData?.find(r => r.strikePrice === signal.atmStrike)?.CE?.ltp : optionChainData?.find(r => r.strikePrice === signal.atmStrike)?.PE?.ltp;
+        const premium = signal.type === 'BUY_CE'
+          ? optionChainData?.find(r => r.strikePrice === signal.atmStrike)?.CE?.ltp
+          : optionChainData?.find(r => r.strikePrice === signal.atmStrike)?.PE?.ltp;
         const lots = this.profile.lots || 1;
 
         if (premium && premium > 0) {
           const trade = this.tradeManager.openTrade(signal, premium, lots, this.profile);
           if (trade && auditId) {
-            trade.auditId = auditId; // Link trade to audit
+            trade.auditId = auditId;
             this.signalAudit.logExecution(auditId, {
               filled: true,
               fillTimestamp: Date.now(),
               fillPremium: premium,
-              slippage: 0, // theoretical fill
+              slippage: 0,
               lots,
-              brokerOrderId: null, // paper trading for now
+              brokerOrderId: null,
             });
           }
           this.emit('tradeOpen', { instrumentId: this.instrumentId, trade, signal });
@@ -254,7 +306,7 @@ class InstrumentEngine extends EventEmitter {
       instrumentId: this.instrumentId,
       ltp: this.currentLTP,
       candles: this.candleBuilder.getCandles(),
-      indicators: this.indicators.getLastIndicators(),
+      indicators: this.lastIndicators,          // FIX: use stored lastIndicators
       marketState: this.marketState.getCurrentState(),
       oiAnalysis: this.oiEngine.getAnalysis(this.currentLTP),
       signals: this.signalEngine.getSignals(),
@@ -272,7 +324,8 @@ class InstrumentEngine extends EventEmitter {
   stop() { this.isActive = false; }
   reset() {
     this.candleBuilder.reset();
-    this.indicators.reset();
+    this.vwap = new VWAPCalculator();            // FIX: recreate VWAP on reset
+    this.indicators = require('../indicators');
     this.marketState.reset();
     this.oiEngine = new OIEngine();
     this.signalEngine = new SignalEngine();
@@ -284,6 +337,7 @@ class InstrumentEngine extends EventEmitter {
     this.lastLTP = null;
     this.lastAnalysis = 0;
     this.lastAnalysisResult = null;
+    this.lastIndicators = null;
     this.isActive = false;
   }
 }

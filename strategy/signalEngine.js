@@ -136,7 +136,7 @@ class SignalEngine {
     const { ema5, ema9, ema21, vwap, bb, rsi, atr14, volume, avgVolume } = indicators;
     const { state: marketStateValue, confidence: marketStateConfidence, reasons: marketStateReasons } = marketState;
     const { pcr, pcrBias, oiBullish, oiBearish, imbalance, nearSupport, nearResistance, isPinned, wallPressure } = oiAnalysis;
-    const { regime, regimeStrength } = regime;
+    const { regime: regimeState, strength: regimeStrength } = regime;
     const { bodyRatio, upperWick, lowerWick } = candles.current5m || {};
 
     let score = 0;
@@ -236,7 +236,7 @@ class SignalEngine {
     }
 
     // Regime
-    if (regime === 'TRENDING' && regimeStrength > 0.6) {
+    if (regimeState === 'TRENDING' && regimeStrength > 0.6) {
       if (score > 0) {
         score += 10;
         factors.push({ name: 'Trending Regime', score: 10, weight: 0.10 });
@@ -315,8 +315,8 @@ class SignalEngine {
       marketState: marketStateValue,
       marketStateConfidence,
       oiBias: pcrBias,
-      regime,
-      regimeStrength,
+      regime: regimeState,
+	  regimeStrength,
       factors, // NEW: audit trail
       status: 'NEW', // NEW: lifecycle state
     };
